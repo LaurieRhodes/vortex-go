@@ -1,0 +1,182 @@
+// Encoding metadata messages for vortex-go.
+// Extracted from Rust prost::Message structs in the vortex reference implementation.
+//
+// Each message corresponds to one array encoding's metadata, serialized as protobuf
+// in the ArrayNode.metadata field of Flat layout segments.
+
+syntax = "proto3";
+
+package vortex.encodings;
+
+option go_package = "github.com/LaurieRhodes/vortex-go/internal/proto/encodings";
+
+import "scalar.proto";
+
+// --- Shared types ---
+
+// PatchesMetadata describes outlier values stored separately from the main encoding.
+// Source: vortex-array/src/patches.rs
+message PatchesMetadata {
+  uint64 len = 1;
+  uint64 offset = 2;
+  // PType enum value for the indices array
+  int32 indices_ptype = 3;
+  optional uint64 chunk_offsets_len = 4;
+  // PType enum value for chunk offsets
+  optional int32 chunk_offsets_ptype = 5;
+  optional uint64 offset_within_chunk = 6;
+}
+
+// --- FastLanes encodings ---
+
+// BitPackedMetadata for fastlanes.bitpacked
+// Source: encodings/fastlanes/src/bitpacking/vtable/mod.rs
+message BitPackedMetadata {
+  uint32 bit_width = 1;
+  uint32 offset = 2;    // must be <1024
+  optional PatchesMetadata patches = 3;
+}
+
+// DeltaMetadata for fastlanes.delta
+// Source: encodings/fastlanes/src/delta/vtable/mod.rs
+message DeltaMetadata {
+  uint64 deltas_len = 1;
+  uint32 offset = 2;    // must be <1024
+}
+
+// RLEMetadata for fastlanes.rle
+// Source: encodings/fastlanes/src/rle/vtable/mod.rs
+message RLEMetadata {
+  uint64 values_len = 1;
+  uint64 indices_len = 2;
+  // PType enum value
+  int32 indices_ptype = 3;
+  uint64 values_idx_offsets_len = 4;
+  // PType enum value
+  int32 values_idx_offsets_ptype = 5;
+  uint64 offset = 6;
+}
+
+// Note: fastlanes.for has no dedicated metadata message.
+// Its metadata is a ScalarValue (from scalar.proto) representing the reference value.
+
+// --- Core Vortex encodings ---
+
+// RunEndMetadata for vortex.runend
+// Source: encodings/runend/src/array.rs
+message RunEndMetadata {
+  // PType enum value
+  int32 ends_ptype = 1;
+  uint64 num_runs = 2;
+  uint64 offset = 3;
+}
+
+// SequenceMetadata for vortex.sequence
+// Source: encodings/sequence/src/array.rs
+message SequenceMetadata {
+  vortex.scalar.ScalarValue base = 1;
+  vortex.scalar.ScalarValue multiplier = 2;
+}
+
+// SparseMetadata for vortex.sparse
+// Source: encodings/sparse/src/lib.rs
+message SparseMetadata {
+  PatchesMetadata patches = 1;
+}
+
+// --- Temporal and decimal ---
+
+// DateTimePartsMetadata for vortex.datetimeparts
+// Source: encodings/datetime-parts/src/array.rs
+message DateTimePartsMetadata {
+  // PType enum values
+  int32 days_ptype = 1;
+  int32 seconds_ptype = 2;
+  int32 subseconds_ptype = 3;
+}
+
+// DecimalBytesPartsMetadata for vortex.decimal_byte_parts
+// Source: encodings/decimal-byte-parts/src/decimal_byte_parts/mod.rs
+message DecimalBytesPartsMetadata {
+  // PType enum value
+  int32 zeroth_child_ptype = 1;
+  uint32 lower_part_count = 2;
+}
+
+// --- Float encodings ---
+
+// ALPMetadata for vortex.alp
+// Source: encodings/alp/src/alp/array.rs
+message ALPMetadata {
+  uint32 exp_e = 1;
+  uint32 exp_f = 2;
+  optional PatchesMetadata patches = 3;
+}
+
+// ALPRDMetadata for vortex.alprd
+// Source: encodings/alp/src/alp_rd/array.rs
+message ALPRDMetadata {
+  uint32 right_bit_width = 1;
+  uint32 dict_len = 2;
+  repeated uint32 dict = 3;
+  // PType enum value
+  int32 left_parts_ptype = 4;
+  PatchesMetadata patches = 5;
+}
+
+// --- String / compression encodings ---
+
+// FSSTMetadata for vortex.fsst
+// Source: encodings/fsst/src/array.rs
+message FSSTMetadata {
+  // PType enum value
+  int32 uncompressed_lengths_ptype = 1;
+  // PType enum value
+  int32 codes_offsets_ptype = 2;
+}
+
+// ZstdFrameMetadata is a sub-message for ZstdMetadata.
+// Source: encodings/zstd/src/lib.rs
+message ZstdFrameMetadata {
+  uint64 uncompressed_size = 1;
+  uint64 n_values = 2;
+}
+
+// ZstdMetadata for vortex.zstd
+// Source: encodings/zstd/src/lib.rs
+message ZstdMetadata {
+  // 0 if no dictionary
+  uint32 dictionary_size = 1;
+  repeated ZstdFrameMetadata frames = 2;
+}
+
+// ZstdBuffersMetadata for vortex.zstd_buffers
+// Source: encodings/zstd/src/zstd_buffers.rs
+message ZstdBuffersMetadata {
+  string inner_encoding_id = 1;
+  bytes inner_metadata = 2;
+  repeated uint64 uncompressed_sizes = 3;
+  // Alignment of each buffer in bytes (must be a power of two)
+  repeated uint32 buffer_alignments = 4;
+}
+
+// --- Pco (PCodec) ---
+
+// PcoPageInfo is a sub-message for PcoChunkInfo.
+// Source: encodings/pco/src/lib.rs
+message PcoPageInfo {
+  uint32 n_values = 1;
+}
+
+// PcoChunkInfo is a sub-message for PcoMetadata.
+// Source: encodings/pco/src/lib.rs
+message PcoChunkInfo {
+  repeated PcoPageInfo pages = 1;
+}
+
+// PcoMetadata for vortex.pco
+// Source: encodings/pco/src/lib.rs
+message PcoMetadata {
+  bytes header = 1;
+  repeated PcoChunkInfo chunks = 2;
+}
