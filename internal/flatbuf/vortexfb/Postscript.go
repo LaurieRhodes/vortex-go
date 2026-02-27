@@ -6,21 +6,21 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// The `Postscript` is guaranteed by the file format to never exceed
-/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
-/// followed by an 8-byte `EndOfFile` struct.
-///
-/// An initial read of a Vortex file defaults to at least 64KB (u16::MAX bytes) and therefore
-/// is guaranteed to cover at least the Postscript.
-///
-/// The reason for a postscript at all is to ensure minimal but all necessary footer information
-/// can be read in two round trips. Since the DType is optional and possibly large, it lives in
-/// its own segment. If the footer were arbitrary size, with a pointer to the DType segment, then
-/// in the worst case we would need one round trip to read the footer length, one to read the full
-/// footer and parse the DType offset, and a third to fetch the DType segment.
-///
-/// The segments pointed to by the postscript have inline compression and encryption specs to avoid
-/// the need to fetch encryption schemes up-front.
+// / The `Postscript` is guaranteed by the file format to never exceed
+// / 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+// / followed by an 8-byte `EndOfFile` struct.
+// /
+// / An initial read of a Vortex file defaults to at least 64KB (u16::MAX bytes) and therefore
+// / is guaranteed to cover at least the Postscript.
+// /
+// / The reason for a postscript at all is to ensure minimal but all necessary footer information
+// / can be read in two round trips. Since the DType is optional and possibly large, it lives in
+// / its own segment. If the footer were arbitrary size, with a pointer to the DType segment, then
+// / in the worst case we would need one round trip to read the footer length, one to read the full
+// / footer and parse the DType offset, and a third to fetch the DType segment.
+// /
+// / The segments pointed to by the postscript have inline compression and encryption specs to avoid
+// / the need to fetch encryption schemes up-front.
 type Postscript struct {
 	_tab flatbuffers.Table
 }
@@ -48,7 +48,7 @@ func (rcv *Postscript) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-/// Segment containing the root `DType` flatbuffer.
+// / Segment containing the root `DType` flatbuffer.
 func (rcv *Postscript) Dtype(obj *PostscriptSegment) *PostscriptSegment {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
@@ -62,8 +62,8 @@ func (rcv *Postscript) Dtype(obj *PostscriptSegment) *PostscriptSegment {
 	return nil
 }
 
-/// Segment containing the root `DType` flatbuffer.
-/// Segment containing the root `Layout` flatbuffer (required).
+// / Segment containing the root `DType` flatbuffer.
+// / Segment containing the root `Layout` flatbuffer (required).
 func (rcv *Postscript) Layout(obj *PostscriptSegment) *PostscriptSegment {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
@@ -77,8 +77,8 @@ func (rcv *Postscript) Layout(obj *PostscriptSegment) *PostscriptSegment {
 	return nil
 }
 
-/// Segment containing the root `Layout` flatbuffer (required).
-/// Segment containing the file-level `Statistics` flatbuffer.
+// / Segment containing the root `Layout` flatbuffer (required).
+// / Segment containing the file-level `Statistics` flatbuffer.
 func (rcv *Postscript) Statistics(obj *PostscriptSegment) *PostscriptSegment {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
@@ -92,8 +92,8 @@ func (rcv *Postscript) Statistics(obj *PostscriptSegment) *PostscriptSegment {
 	return nil
 }
 
-/// Segment containing the file-level `Statistics` flatbuffer.
-/// Segment containing the 'Footer' flatbuffer (required)
+// / Segment containing the file-level `Statistics` flatbuffer.
+// / Segment containing the 'Footer' flatbuffer (required)
 func (rcv *Postscript) Footer(obj *PostscriptSegment) *PostscriptSegment {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
@@ -107,7 +107,7 @@ func (rcv *Postscript) Footer(obj *PostscriptSegment) *PostscriptSegment {
 	return nil
 }
 
-/// Segment containing the 'Footer' flatbuffer (required)
+// / Segment containing the 'Footer' flatbuffer (required)
 func PostscriptStart(builder *flatbuffers.Builder) {
 	builder.StartObject(4)
 }

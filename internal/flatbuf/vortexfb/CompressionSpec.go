@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Definition of a compression scheme.
+// / Definition of a compression scheme.
 type CompressionSpec struct {
 	_tab flatbuffers.Table
 }

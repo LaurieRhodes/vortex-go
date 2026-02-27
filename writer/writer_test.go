@@ -383,8 +383,15 @@ func TestWriteMultipleChunks(t *testing.T) {
 		t.Errorf("rows = %d, want 7", layout.RowCount)
 	}
 
-	// Column should be a Chunked layout with 2 Flat children.
+	// Column should be Zoned → Chunked → 2 Flat children (zone maps enabled by default).
 	colLayout := layout.Children[0]
+	if colLayout.IsZoned() {
+		// Unwrap the Zoned layout to get the data layout (child[0]).
+		if len(colLayout.Children) != 2 {
+			t.Fatalf("zoned children = %d, want 2 (data + stats)", len(colLayout.Children))
+		}
+		colLayout = colLayout.Children[0]
+	}
 	if !colLayout.IsChunked() {
 		t.Fatalf("column layout = %q, want chunked", colLayout.EncodingID)
 	}
@@ -767,4 +774,117 @@ func readAndCheckF64(t *testing.T, vf *vortex.File, col string, expected func(in
 		}
 	}
 	t.Logf("%s: %d values ✓", col, n)
+}
+
+// TestZoneMapRoundTrip writes a multi-chunk file with zone maps and verifies
+// that the zone-level statistics enable pruning during scans.
+func TestZoneMapRoundTrip(t *testing.T) {
+	schema := &vortex.DType{
+		Kind:       vortex.DTypeStruct,
+		FieldNames: []string{"value"},
+		FieldTypes: []*vortex.DType{
+			{Kind: vortex.DTypePrimitive, PType: vortex.PTypeI32},
+		},
+	}
+
+	// Write 3 chunks with distinct ranges, mimicking the Rust zone_pruning.vortex:
+	// Chunk 0: [0..99]   → zone 0
+	// Chunk 1: [1000..1099] → zone 1
+	// Chunk 2: [2000..2099] → zone 2
+	var out bytes.Buffer
+	opts := DefaultOptions()
+	opts.EnableZoneMaps = true
+	w, err := NewWriter(&out, schema, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, base := range []int32{0, 1000, 2000} {
+		buf := make([]byte, 100*4)
+		for i := 0; i < 100; i++ {
+			binary.LittleEndian.PutUint32(buf[i*4:], uint32(base+int32(i)))
+		}
+		err := w.WriteChunk(map[string]*vortex.Array{
+			"value": {DType: schema.FieldTypes[0], Length: 100, Buffers: [][]byte{buf}},
+		})
+		if err != nil {
+			t.Fatalf("WriteChunk base=%d: %v", base, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	data := out.Bytes()
+	t.Logf("wrote %d bytes with zone maps", len(data))
+
+	// Open and verify layout structure.
+	r := bytes.NewReader(data)
+	vf, err := vortex.Open(r, int64(len(data)))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	root := vf.Layout()
+	if !root.IsStruct() {
+		t.Fatalf("root = %q, want struct", root.EncodingID)
+	}
+
+	col := root.Children[0]
+	if !col.IsZoned() {
+		t.Fatalf("column = %q, want vortex.stats (zoned)", col.EncodingID)
+	}
+	t.Logf("layout: Struct → Zoned → %s", col.Children[0].EncodingID)
+
+	// Scan all rows.
+	iter, err := vf.Scan(vortex.ScanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var totalRows int
+	for iter.Next() {
+		totalRows += iter.Result().RowCount
+	}
+	if err := iter.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if totalRows != 300 {
+		t.Errorf("full scan: got %d rows, want 300", totalRows)
+	}
+
+	// Filtered scan: value BETWEEN 50 AND 150 → should only match zone 0.
+	filter := &vortex.RowFilter{
+		Predicates: []vortex.ColumnPredicate{
+			{Column: "value", Op: vortex.OpGTE, Value: int32(50)},
+			{Column: "value", Op: vortex.OpLTE, Value: int32(150)},
+		},
+	}
+	fIter, err := vf.Scan(vortex.ScanOptions{RowFilter: filter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var filteredRows int
+	for fIter.Next() {
+		filteredRows += fIter.Result().RowCount
+	}
+	if err := fIter.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	pruned, zones := fIter.ZonePruningStats()
+	t.Logf("filtered scan: %d rows returned, %d/%d zones pruned", filteredRows, pruned, zones)
+
+	// With multi-chunk layout, each chunk = one zone, so chunk-level skip works.
+	if zones != 3 {
+		t.Errorf("expected 3 zones, got %d", zones)
+	}
+	if pruned != 2 {
+		t.Errorf("expected 2 zones pruned, got %d", pruned)
+	}
+	// With proper chunk-level skip, only zone 0 (100 rows) should be returned.
+	if filteredRows != 100 {
+		t.Errorf("expected 100 rows after pruning, got %d", filteredRows)
+	}
+
+	t.Logf("zone map round-trip: 3 zones, 2 pruned, %d rows returned ✓", filteredRows)
 }

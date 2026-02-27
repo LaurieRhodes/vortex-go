@@ -111,9 +111,7 @@ func Compress(data []byte, nt NumberType, opts CompressOptions) (*CompressResult
 		chunkMetas = append(chunkMetas, cmBytes)
 		pages = append(pages, chunkPages...)
 		pageCounts = append(pageCounts, len(pSizes))
-		for _, ps := range pSizes {
-			pageNs = append(pageNs, ps)
-		}
+		pageNs = append(pageNs, pSizes...)
 	}
 
 	return &CompressResult{
@@ -507,8 +505,8 @@ type ansEncoderState struct {
 
 // ansEncoder holds the ANS encoding table.
 type ansEncoder struct {
-	symbols  []ansEncoderState
-	sizeLog  Bitlen
+	symbols   []ansEncoderState
+	sizeLog   Bitlen
 	tableSize uint32
 }
 

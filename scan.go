@@ -55,7 +55,7 @@ type scanColumn struct {
 	flatLayouts []*Layout
 
 	// For Dict columns: separate dict values layout and codes flat layouts.
-	isDict         bool
+	isDict          bool
 	dictValuesFlats []*Layout // flat layouts for dictionary values
 	dictCodesFlats  []*Layout // flat layouts for dictionary codes
 	dictValuesRows  uint64    // row count of values layout (= dict size)
@@ -355,7 +355,7 @@ type ScanIterator struct {
 
 	// Iteration state.
 	chunkIdx  int
-	maxChunks int  // computed lazily
+	maxChunks int // computed lazily
 	result    *ScanResult
 	err       error
 	started   bool
@@ -363,10 +363,10 @@ type ScanIterator struct {
 	rowsSoFar int
 
 	// Zone pruning state. Nil when no filter is active.
-	zonePruned   []bool  // zonePruned[i] == true means zone i should be skipped
-	zoneLen      uint32  // rows per zone
-	numZones     int     // total number of zones
-	chunkOffsets []int64 // cumulative row offset for each chunk (computed lazily)
+	zonePruned   []bool                      // zonePruned[i] == true means zone i should be skipped
+	zoneLen      uint32                      // rows per zone
+	numZones     int                         // total number of zones
+	chunkOffsets []int64                     // cumulative row offset for each chunk (computed lazily)
 	zoneStats    map[string]*ZoneColumnStats // per-column zone stats (for callback filter)
 }
 
@@ -528,21 +528,17 @@ func (it *ScanIterator) decodeSimpleColumnChunk(sc *scanColumn, chunkIdx int) (*
 func (it *ScanIterator) decodeDictColumnChunk(sc *scanColumn, chunkIdx int) (*Array, int, error) {
 	// Decode dictionary values (decode all values flats and use the first for now).
 	// In typical files there's one values segment.
-	var valuesArr *Array
-	for _, flat := range sc.dictValuesFlats {
-		node, buffers, err := it.file.ReadFlatSegment(flat)
-		if err != nil {
-			return nil, 0, fmt.Errorf("reading dict values for %q: %w", sc.name, err)
-		}
-		arr, err := decodeArrayInternal(node, buffers, sc.dtype, flat.RowCount)
-		if err != nil {
-			return nil, 0, fmt.Errorf("decoding dict values for %q: %w", sc.name, err)
-		}
-		valuesArr = arr
-		break // typically one values segment
-	}
-	if valuesArr == nil {
+	if len(sc.dictValuesFlats) == 0 {
 		return nil, 0, fmt.Errorf("no dict values decoded for %q", sc.name)
+	}
+	flat := sc.dictValuesFlats[0] // typically one values segment
+	node, buffers, err := it.file.ReadFlatSegment(flat)
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading dict values for %q: %w", sc.name, err)
+	}
+	valuesArr, err := decodeArrayInternal(node, buffers, sc.dtype, flat.RowCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decoding dict values for %q: %w", sc.name, err)
 	}
 
 	// Decode codes for this chunk.
@@ -551,7 +547,7 @@ func (it *ScanIterator) decodeDictColumnChunk(sc *scanColumn, chunkIdx int) (*Ar
 	}
 
 	codesFlat := sc.dictCodesFlats[chunkIdx]
-	node, buffers, err := it.file.ReadFlatSegment(codesFlat)
+	node, buffers, err = it.file.ReadFlatSegment(codesFlat)
 	if err != nil {
 		return nil, 0, fmt.Errorf("reading dict codes for %q: %w", sc.name, err)
 	}

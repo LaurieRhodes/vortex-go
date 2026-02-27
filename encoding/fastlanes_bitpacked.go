@@ -90,7 +90,7 @@ func (d *BitPackedDecoder) Decode(node *vortex.ArrayNode, buffers [][]byte, dtyp
 	}
 
 	// Handle patches (outlier values stored separately).
-	if meta.Patches != nil && len(node.Children) > 0 {
+	if meta.Patches != nil && len(node.Children) > 0 { //nolint:staticcheck // TODO: implement patch application
 		// TODO: implement full patch application.
 	}
 

@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
-/// immediately after the message in the byte stream.
+// / An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
+// / immediately after the message in the byte stream.
 type Array struct {
 	_tab flatbuffers.Table
 }
@@ -35,7 +35,7 @@ func (rcv *Array) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-/// The array's hierarchical definition.
+// / The array's hierarchical definition.
 func (rcv *Array) Root(obj *ArrayNode) *ArrayNode {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
@@ -49,8 +49,8 @@ func (rcv *Array) Root(obj *ArrayNode) *ArrayNode {
 	return nil
 }
 
-/// The array's hierarchical definition.
-/// The locations of the data buffers of the array
+// / The array's hierarchical definition.
+// / The locations of the data buffers of the array
 func (rcv *Array) Buffers(obj *Buffer, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
@@ -70,7 +70,7 @@ func (rcv *Array) BuffersLength() int {
 	return 0
 }
 
-/// The locations of the data buffers of the array
+// / The locations of the data buffers of the array
 func ArrayStart(builder *flatbuffers.Builder) {
 	builder.StartObject(2)
 }

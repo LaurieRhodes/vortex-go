@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
+// / A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
 type Buffer struct {
 	_tab flatbuffers.Struct
 }
@@ -20,38 +20,42 @@ func (rcv *Buffer) Table() flatbuffers.Table {
 	return rcv._tab.Table
 }
 
-/// The length of any padding bytes written immediately before the buffer.
+// / The length of any padding bytes written immediately before the buffer.
 func (rcv *Buffer) Padding() uint16 {
 	return rcv._tab.GetUint16(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-/// The length of any padding bytes written immediately before the buffer.
+
+// / The length of any padding bytes written immediately before the buffer.
 func (rcv *Buffer) MutatePadding(n uint16) bool {
 	return rcv._tab.MutateUint16(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
-/// The minimum alignment of the buffer, stored as an exponent of 2.
+// / The minimum alignment of the buffer, stored as an exponent of 2.
 func (rcv *Buffer) AlignmentExponent() byte {
 	return rcv._tab.GetByte(rcv._tab.Pos + flatbuffers.UOffsetT(2))
 }
-/// The minimum alignment of the buffer, stored as an exponent of 2.
+
+// / The minimum alignment of the buffer, stored as an exponent of 2.
 func (rcv *Buffer) MutateAlignmentExponent(n byte) bool {
 	return rcv._tab.MutateByte(rcv._tab.Pos+flatbuffers.UOffsetT(2), n)
 }
 
-/// The compression algorithm used to compress the buffer.
+// / The compression algorithm used to compress the buffer.
 func (rcv *Buffer) Compression() Compression {
 	return Compression(rcv._tab.GetByte(rcv._tab.Pos + flatbuffers.UOffsetT(3)))
 }
-/// The compression algorithm used to compress the buffer.
+
+// / The compression algorithm used to compress the buffer.
 func (rcv *Buffer) MutateCompression(n Compression) bool {
 	return rcv._tab.MutateByte(rcv._tab.Pos+flatbuffers.UOffsetT(3), byte(n))
 }
 
-/// The length of the buffer in bytes.
+// / The length of the buffer in bytes.
 func (rcv *Buffer) Length() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
 }
-/// The length of the buffer in bytes.
+
+// / The length of the buffer in bytes.
 func (rcv *Buffer) MutateLength(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
 }

@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// The `Registry` object stores dictionary-encoded configuration for segments,
-/// compression schemes, encryption schemes, etc.
+// / The `Registry` object stores dictionary-encoded configuration for segments,
+// / compression schemes, encryption schemes, etc.
 type Footer struct {
 	_tab flatbuffers.Table
 }

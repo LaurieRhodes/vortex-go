@@ -14,6 +14,7 @@
 #   testdata/go_written*.vtx — Go-written cross-compatibility files (2 files)
 #
 # It also runs:
+#   - Python/DuckDB interop tests (48 checks, if .venv available)
 #   - Full Go test suite (89 tests)
 #   - Rust cross-compatibility test (reads Go-written files)
 #
@@ -190,3 +191,13 @@ echo "=== Running Rust cross-compatibility test ==="
 
 echo ""
 echo "=== Done. All test data regenerated and verified. ==="
+
+# Run Python/DuckDB interop tests if venv is available.
+echo ""
+echo "=== Running Python/DuckDB interop tests ==="
+VENV_DIR="$SCRIPT_DIR/../.venv"
+if [ -f "$VENV_DIR/bin/python3" ]; then
+    "$VENV_DIR/bin/python3" "$SCRIPT_DIR/test_python_interop.py"
+else
+    echo "  (skipped: no .venv found — run 'python3 -m venv .venv && . .venv/bin/activate && pip install vortex-data duckdb pandas pyarrow')"
+fi

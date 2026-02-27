@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
-	
+
 	"github.com/LaurieRhodes/vortex-go/pcodec"
 )
 
@@ -78,13 +78,13 @@ func TestPcoCompressionRatio(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			data := tt.data()
 			rawSize := len(data)
-			
+
 			for _, level := range []int{0, 6} {
 				result, err := pcodec.Compress(data, tt.nt, pcodec.CompressOptions{Level: level})
 				if err != nil {
 					t.Fatalf("level %d: %v", level, err)
 				}
-				
+
 				compSize := len(result.Header)
 				for _, cm := range result.ChunkMetas {
 					compSize += len(cm)
@@ -94,7 +94,7 @@ func TestPcoCompressionRatio(t *testing.T) {
 				}
 				ratio := float64(compSize) / float64(rawSize) * 100
 				t.Logf("level=%d: raw=%d compressed=%d ratio=%.1f%%", level, rawSize, compSize, ratio)
-				
+
 				// Verify round-trip.
 				lt := tt.nt.LatentType()
 				pagesPerChunk := result.PageCounts
@@ -125,7 +125,7 @@ func TestPcoMultiBinBenefit(t *testing.T) {
 	for i := 0; i < n; i++ {
 		var v int32
 		if i%2 == 0 {
-			v = int32(100 + i%20)   // cluster 1: [100, 119]
+			v = int32(100 + i%20) // cluster 1: [100, 119]
 		} else {
 			v = int32(50000 + i%20) // cluster 2: [50000, 50019]
 		}

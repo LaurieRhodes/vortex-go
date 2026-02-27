@@ -10,9 +10,10 @@ import (
 
 // TestZonePruningFile verifies zone map reading from the zone_pruning.vortex test file.
 // File structure: 300 rows, zone_len=100, 3 zones
-//   Zone 0: values [0, 99]
-//   Zone 1: values [1000, 1099]
-//   Zone 2: values [2000, 2099]
+//
+//	Zone 0: values [0, 99]
+//	Zone 1: values [1000, 1099]
+//	Zone 2: values [2000, 2099]
 func TestZonePruningFile(t *testing.T) {
 	f, err := os.Open("../testdata/rust/zone_pruning.vortex")
 	if err != nil {
@@ -145,11 +146,11 @@ func TestZonePruningDecisions(t *testing.T) {
 // initializes zone pruning and computes the right pruning mask.
 func TestScanWithRowFilter(t *testing.T) {
 	tests := []struct {
-		name          string
-		filter        *vortex.RowFilter
-		wantPruned    int
-		wantTotal     int
-		wantRowCount  int // expected total rows returned
+		name         string
+		filter       *vortex.RowFilter
+		wantPruned   int
+		wantTotal    int
+		wantRowCount int // expected total rows returned
 	}{
 		{
 			name:         "no filter",

@@ -23,7 +23,7 @@ type DType struct {
 	FixedSize   uint32 // only for FixedSizeList
 
 	// For Extension types
-	ExtensionID string
+	ExtensionID  string
 	StorageDType *DType
 	ExtMetadata  []byte
 }

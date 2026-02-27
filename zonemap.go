@@ -353,7 +353,7 @@ func extractTypedValues(arr *Array, colDType *DType) []interface{} {
 
 	for i := 0; i < arr.Length; i++ {
 		// Check validity.
-		if validityBuf != nil && len(validityBuf) > 0 {
+		if len(validityBuf) > 0 {
 			byteIdx := i / 8
 			bitIdx := i % 8
 			if byteIdx < len(validityBuf) && validityBuf[byteIdx]&(1<<uint(bitIdx)) == 0 {

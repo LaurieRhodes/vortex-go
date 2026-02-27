@@ -32,10 +32,9 @@ import (
 	"github.com/LaurieRhodes/vortex-go/internal/flatbuf/vortexfb"
 	"github.com/LaurieRhodes/vortex-go/internal/proto/scalar"
 	"google.golang.org/protobuf/proto"
-	protostruct "google.golang.org/protobuf/types/known/structpb"
 )
 
-// Options controls writer behaviour.
+// Options controls writer behavior.
 type Options struct {
 	// Version is the file format version to write. Default: 1.
 	Version uint16
@@ -55,6 +54,10 @@ type Options struct {
 
 	// PcodecLevel controls pcodec compression effort (0=baseline, 6=default multi-bin).
 	PcodecLevel int
+
+	// EnableZoneMaps enables per-zone min/max statistics (vortex.stats layout).
+	// Each chunk becomes one zone, enabling chunk-level pruning during scans.
+	EnableZoneMaps bool
 }
 
 // DefaultOptions returns the default writer options with compression enabled.
@@ -65,6 +68,7 @@ func DefaultOptions() Options {
 		EnableBitPacking: true,
 		EnablePcodec:     true,
 		PcodecLevel:      6,
+		EnableZoneMaps:   true,
 	}
 }
 
@@ -75,7 +79,7 @@ func UncompressedOptions() Options {
 
 // Writer writes a Vortex file.
 //
-// The writer accumulates data segments as chunks are written, then finalises
+// The writer accumulates data segments as chunks are written, then finalizes
 // the file metadata (layout tree, footer, postscript) on Close.
 type Writer struct {
 	w      io.Writer
@@ -94,6 +98,12 @@ type Writer struct {
 
 	// File-level stats per column (updated with each chunk).
 	colStats []columnStats
+
+	// Per-column zone map trackers (nil if zone maps disabled).
+	zoneTrackers []zoneColTracker
+
+	// Per-column stats table segment indices (filled during Close).
+	statsSegIdx []int // -1 means no zone map for that column
 
 	closed bool
 }
@@ -129,6 +139,11 @@ func NewWriter(w io.Writer, schema *vortex.DType, opts Options) (*Writer, error)
 		arraySpecs: make(map[string]int),
 		colChunks:  make([][]colChunk, len(schema.FieldNames)),
 		colStats:   make([]columnStats, len(schema.FieldNames)),
+	}
+
+	// Initialize zone map trackers if enabled.
+	if opts.EnableZoneMaps {
+		wr.zoneTrackers = make([]zoneColTracker, len(schema.FieldNames))
 	}
 
 	// Write leading magic.
@@ -202,12 +217,17 @@ func (w *Writer) WriteChunk(columns map[string]*vortex.Array) error {
 
 		// Update statistics.
 		w.updateStats(i, arr, colDType)
+
+		// Track per-zone stats for zone map pruning.
+		if w.zoneTrackers != nil {
+			w.zoneTrackers[i].addZone(arr, colDType)
+		}
 	}
 
 	return nil
 }
 
-// Close finalises the file by writing the metadata footer.
+// Close finalizes the file by writing the metadata footer.
 //
 // The file structure after Close:
 //
@@ -238,6 +258,53 @@ func (w *Writer) Close() error {
 		layoutSpecs = append(layoutSpecs, vortex.LayoutChunked)
 	}
 
+	// Write zone map stats table segments (if enabled).
+	w.statsSegIdx = make([]int, len(w.schema.FieldNames))
+	for i := range w.statsSegIdx {
+		w.statsSegIdx[i] = -1
+	}
+	if w.zoneTrackers != nil {
+		needZoned := false
+		for i, tracker := range w.zoneTrackers {
+			if tracker.hasZones() {
+				needZoned = true
+
+				segData, alignExp, err := w.serializeStatsTable(&w.zoneTrackers[i])
+				if err != nil {
+					return fmt.Errorf("writer: serializing zone stats for column %d: %w", i, err)
+				}
+
+				// Align segment.
+				segAlign := 1 << int(alignExp)
+				if pad := (segAlign - int(w.offset%uint64(segAlign))) % segAlign; pad > 0 {
+					zeros := make([]byte, pad)
+					if _, err := w.w.Write(zeros); err != nil {
+						return fmt.Errorf("writer: aligning stats segment: %w", err)
+					}
+					w.offset += uint64(pad)
+				}
+
+				segIdx := len(w.segSpecs)
+				w.segSpecs = append(w.segSpecs, vortex.SegmentSpec{
+					Offset:            w.offset,
+					Length:            uint32(len(segData)),
+					AlignmentExponent: alignExp,
+				})
+
+				if _, err := w.w.Write(segData); err != nil {
+					return fmt.Errorf("writer: writing stats segment: %w", err)
+				}
+				w.offset += uint64(len(segData))
+
+				w.statsSegIdx[i] = segIdx
+			}
+		}
+		if needZoned {
+			layoutSpecIdx[vortex.LayoutZoned] = uint16(len(layoutSpecs))
+			layoutSpecs = append(layoutSpecs, vortex.LayoutZoned)
+		}
+	}
+
 	// 1. Write DType FlatBuffer.
 	dtypeBytes := buildDTypeFB(w.schema)
 	dtypeOffset := w.offset
@@ -248,11 +315,10 @@ func (w *Writer) Close() error {
 
 	// 2. Build and write Layout FlatBuffer.
 	totalRows := uint64(0)
-	for _, chunks := range w.colChunks {
-		for _, c := range chunks {
+	if len(w.colChunks) > 0 {
+		for _, c := range w.colChunks[0] {
 			totalRows += c.rowCount
 		}
-		break // all columns have the same total
 	}
 
 	layoutBytes := w.buildLayoutFB(layoutSpecIdx, totalRows)
@@ -644,9 +710,13 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 	for i := len(w.schema.FieldNames) - 1; i >= 0; i-- {
 		chunks := w.colChunks[i]
 
+		var dataLayout flatbuffers.UOffsetT
+		var colRows uint64
+
 		if len(chunks) == 1 {
 			// Single chunk → single Flat layout.
-			colOffsets[i] = buildFlatLayoutFB(b, layoutSpecIdx[vortex.LayoutFlat], chunks[0])
+			dataLayout = buildFlatLayoutFB(b, layoutSpecIdx[vortex.LayoutFlat], chunks[0])
+			colRows = chunks[0].rowCount
 		} else {
 			// Multiple chunks → Chunked layout wrapping Flat children.
 			childOffsets := make([]flatbuffers.UOffsetT, len(chunks))
@@ -654,7 +724,7 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 				childOffsets[j] = buildFlatLayoutFB(b, layoutSpecIdx[vortex.LayoutFlat], chunks[j])
 			}
 
-			colRows := uint64(0)
+			colRows = 0
 			for _, c := range chunks {
 				colRows += c.rowCount
 			}
@@ -663,13 +733,55 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 			for j := len(childOffsets) - 1; j >= 0; j-- {
 				b.PrependUOffsetT(childOffsets[j])
 			}
-			childrenVec := b.EndVector(len(childOffsets))
+			chunkedChildrenVec := b.EndVector(len(childOffsets))
 
 			vortexfb.LayoutStart(b)
 			vortexfb.LayoutAddEncoding(b, layoutSpecIdx[vortex.LayoutChunked])
 			vortexfb.LayoutAddRowCount(b, colRows)
-			vortexfb.LayoutAddChildren(b, childrenVec)
+			vortexfb.LayoutAddChildren(b, chunkedChildrenVec)
+			dataLayout = vortexfb.LayoutEnd(b)
+		}
+
+		// Wrap with Zoned (vortex.stats) layout if zone map stats available.
+		if w.statsSegIdx != nil && w.statsSegIdx[i] >= 0 {
+			// Determine zone_len from first chunk size.
+			zoneLen := uint32(chunks[0].rowCount)
+
+			// Build stats table Flat layout referencing the stats segment.
+			numZones := uint64(len(chunks))
+			if w.zoneTrackers != nil {
+				numZones = uint64(len(w.zoneTrackers[i].zones))
+			}
+			statsSegIdx := uint32(w.statsSegIdx[i])
+
+			vortexfb.LayoutStartSegmentsVector(b, 1)
+			b.PrependUint32(statsSegIdx)
+			statsSegsVec := b.EndVector(1)
+
+			vortexfb.LayoutStart(b)
+			vortexfb.LayoutAddEncoding(b, layoutSpecIdx[vortex.LayoutFlat])
+			vortexfb.LayoutAddRowCount(b, numZones)
+			vortexfb.LayoutAddSegments(b, statsSegsVec)
+			statsLayout := vortexfb.LayoutEnd(b)
+
+			// Build Zoned metadata: zone_len + stat bitset.
+			zonedMeta := buildZonedMeta(zoneLen)
+			metaVec := b.CreateByteVector(zonedMeta)
+
+			// Zoned layout: child[0] = data, child[1] = stats table.
+			vortexfb.LayoutStartChildrenVector(b, 2)
+			b.PrependUOffsetT(statsLayout)
+			b.PrependUOffsetT(dataLayout)
+			zonedChildrenVec := b.EndVector(2)
+
+			vortexfb.LayoutStart(b)
+			vortexfb.LayoutAddEncoding(b, layoutSpecIdx[vortex.LayoutZoned])
+			vortexfb.LayoutAddRowCount(b, colRows)
+			vortexfb.LayoutAddMetadata(b, metaVec)
+			vortexfb.LayoutAddChildren(b, zonedChildrenVec)
 			colOffsets[i] = vortexfb.LayoutEnd(b)
+		} else {
+			colOffsets[i] = dataLayout
 		}
 	}
 
@@ -890,12 +1002,6 @@ func encodeScalarFloat64(v float64) []byte {
 
 func encodeScalarString(v string) []byte {
 	sv := &scalar.ScalarValue{Kind: &scalar.ScalarValue_StringValue{StringValue: v}}
-	data, _ := proto.Marshal(sv)
-	return data
-}
-
-func encodeScalarNull() []byte {
-	sv := &scalar.ScalarValue{Kind: &scalar.ScalarValue_NullValue{NullValue: protostruct.NullValue_NULL_VALUE}}
 	data, _ := proto.Marshal(sv)
 	return data
 }

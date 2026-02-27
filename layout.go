@@ -30,7 +30,7 @@ const (
 	LayoutDict    = "vortex.dict"
 )
 
-// IsFlat returns true if this is a leaf layout containing a serialised array.
+// IsFlat returns true if this is a leaf layout containing a serialized array.
 func (l *Layout) IsFlat() bool {
 	return l.EncodingID == LayoutFlat
 }

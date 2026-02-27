@@ -148,7 +148,7 @@ func decompressVarBinView(data []byte, dtype *vortex.DType, count int, node *vor
 			if offset+strLen <= len(data) {
 				copy(viewsBuf[viewOff+4:viewOff+8], data[offset:offset+4]) // first 4 bytes prefix
 			}
-			binary.LittleEndian.PutUint32(viewsBuf[viewOff+8:], 0)              // buffer index
+			binary.LittleEndian.PutUint32(viewsBuf[viewOff+8:], 0)               // buffer index
 			binary.LittleEndian.PutUint32(viewsBuf[viewOff+12:], uint32(offset)) // offset into data
 		}
 		offset += strLen

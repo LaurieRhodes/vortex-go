@@ -178,7 +178,7 @@ func readDeltaEncoding(r *BitReader, fv FormatVersion) (DeltaEncoding, error) {
 type LatentVarKey int
 
 const (
-	KeyDelta     LatentVarKey = iota
+	KeyDelta LatentVarKey = iota
 	KeyPrimary
 	KeySecondary
 )

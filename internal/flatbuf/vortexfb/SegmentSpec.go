@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// A `SegmentSpec` acts as the locator for a buffer within the file.
+// / A `SegmentSpec` acts as the locator for a buffer within the file.
 type SegmentSpec struct {
 	_tab flatbuffers.Struct
 }
@@ -20,29 +20,32 @@ func (rcv *SegmentSpec) Table() flatbuffers.Table {
 	return rcv._tab.Table
 }
 
-/// Offset relative to the start of the file.
+// / Offset relative to the start of the file.
 func (rcv *SegmentSpec) Offset() uint64 {
 	return rcv._tab.GetUint64(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-/// Offset relative to the start of the file.
+
+// / Offset relative to the start of the file.
 func (rcv *SegmentSpec) MutateOffset(n uint64) bool {
 	return rcv._tab.MutateUint64(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
-/// Length in bytes of the segment.
+// / Length in bytes of the segment.
 func (rcv *SegmentSpec) Length() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(8))
 }
-/// Length in bytes of the segment.
+
+// / Length in bytes of the segment.
 func (rcv *SegmentSpec) MutateLength(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
 }
 
-/// Base-2 exponent of the alignment of the segment.
+// / Base-2 exponent of the alignment of the segment.
 func (rcv *SegmentSpec) AlignmentExponent() byte {
 	return rcv._tab.GetByte(rcv._tab.Pos + flatbuffers.UOffsetT(12))
 }
-/// Base-2 exponent of the alignment of the segment.
+
+// / Base-2 exponent of the alignment of the segment.
 func (rcv *SegmentSpec) MutateAlignmentExponent(n byte) bool {
 	return rcv._tab.MutateByte(rcv._tab.Pos+flatbuffers.UOffsetT(12), n)
 }

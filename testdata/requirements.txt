@@ -1,0 +1,6 @@
+# Python dependencies for vortex-go interop tests
+# Install: pip install -r testdata/requirements.txt
+vortex-data>=0.60.0
+duckdb>=1.0.0
+pandas>=2.0.0
+pyarrow>=17.0.0

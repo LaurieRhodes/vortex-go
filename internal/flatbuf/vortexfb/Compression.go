@@ -4,7 +4,7 @@ package vortexfb
 
 import "strconv"
 
-/// The compression mechanism used to compress the buffer.
+// / The compression mechanism used to compress the buffer.
 type Compression byte
 
 const (

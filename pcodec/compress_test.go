@@ -105,7 +105,7 @@ func TestLatentOrderedRoundTrip(t *testing.T) {
 	}{
 		{NumU32, 0}, {NumU32, 42}, {NumU32, math.MaxUint32},
 		{NumI32, 0}, {NumI32, uint64(0xFFFFFFFF)}, // -1 as uint32 bits
-		{NumI32, uint64(0x80000000)},              // MinInt32 as uint32 bits
+		{NumI32, uint64(0x80000000)}, // MinInt32 as uint32 bits
 		{NumI64, 0}, {NumI64, ^uint64(0)},
 		{NumF64, math.Float64bits(1.0)}, {NumF64, math.Float64bits(-1.0)},
 		{NumF32, uint64(math.Float32bits(3.14))},

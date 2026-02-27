@@ -6,10 +6,10 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// A `LayoutSpec` describes the type of a particular layout.
-///
-/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
-/// at read-time.
+// / A `LayoutSpec` describes the type of a particular layout.
+// /
+// / These are identified by a globally unique string identifier, and looked up in the Vortex registry
+// / at read-time.
 type LayoutSpec struct {
 	_tab flatbuffers.Table
 }

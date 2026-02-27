@@ -33,7 +33,7 @@ func (rcv *ArrayStats) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-/// Protobuf serialized ScalarValue
+// / Protobuf serialized ScalarValue
 func (rcv *ArrayStats) Min(j int) byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
@@ -59,7 +59,7 @@ func (rcv *ArrayStats) MinBytes() []byte {
 	return nil
 }
 
-/// Protobuf serialized ScalarValue
+// / Protobuf serialized ScalarValue
 func (rcv *ArrayStats) MutateMin(j int, n byte) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {

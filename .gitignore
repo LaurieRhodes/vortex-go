@@ -1,9 +1,16 @@
+# Compiled binaries
+vtxinfo
+vtxconvert
+*.exe
+
+# Build output
+dist/
+
 # Rust build artifacts (test data generator)
 testdata/testgen/target/
 
-# Go build artifacts
-vtxinfo
-*.exe
+# Python virtual environment
+.venv/
 
 # Editor/IDE
 .idea/

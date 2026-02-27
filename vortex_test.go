@@ -290,9 +290,9 @@ func buildMinimalVortexFile(values []int32) []byte {
 
 	// 5. Build and write the Footer FlatBuffer.
 	footerBytes := buildFooter(
-		[]string{"vortex.primitive"},  // array_specs
-		[]string{"vortex.flat"},       // layout_specs
-		[]SegmentSpec{segSpec},        // segment_specs
+		[]string{"vortex.primitive"}, // array_specs
+		[]string{"vortex.flat"},      // layout_specs
+		[]SegmentSpec{segSpec},       // segment_specs
 	)
 	footerOffset := uint64(buf.Len())
 	buf.Write(footerBytes)
@@ -529,8 +529,8 @@ func TestOpenTooSmall(t *testing.T) {
 
 func TestOpenBadMagic(t *testing.T) {
 	data := make([]byte, 20)
-	copy(data[0:4], "VTXF")    // leading magic OK
-	copy(data[16:20], "XXXX")  // trailing magic bad
+	copy(data[0:4], "VTXF")   // leading magic OK
+	copy(data[16:20], "XXXX") // trailing magic bad
 	_, err := Open(bytes.NewReader(data), 20)
 	if err == nil {
 		t.Fatal("expected error for bad trailing magic")

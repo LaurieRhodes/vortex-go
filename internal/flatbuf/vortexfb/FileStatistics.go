@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// The `FileStatistics` object contains file-level statistics for the Vortex file.
+// / The `FileStatistics` object contains file-level statistics for the Vortex file.
 type FileStatistics struct {
 	_tab flatbuffers.Table
 }
@@ -34,8 +34,8 @@ func (rcv *FileStatistics) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-/// Statistics for each field in the root schema. If the root schema is not a struct, there will
-/// be a single entry in this array.
+// / Statistics for each field in the root schema. If the root schema is not a struct, there will
+// / be a single entry in this array.
 func (rcv *FileStatistics) FieldStats(obj *ArrayStats, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
@@ -56,8 +56,8 @@ func (rcv *FileStatistics) FieldStatsLength() int {
 	return 0
 }
 
-/// Statistics for each field in the root schema. If the root schema is not a struct, there will
-/// be a single entry in this array.
+// / Statistics for each field in the root schema. If the root schema is not a struct, there will
+// / be a single entry in this array.
 func FileStatisticsStart(builder *flatbuffers.Builder) {
 	builder.StartObject(1)
 }

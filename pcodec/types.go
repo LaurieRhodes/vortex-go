@@ -31,9 +31,12 @@ const (
 	BitsToEncodeQuantizeK              Bitlen = 8
 	BitsToEncodeDictLen                Bitlen = 25
 
-	MaxAnsBits      Bitlen = 14
-	ANSInterleaving        = 4
-	FullBatchN             = 256
+	MaxAnsBits Bitlen = 14
+)
+
+const (
+	ANSInterleaving = 4
+	FullBatchN      = 256
 )
 
 // LatentType identifies the unsigned integer type used for latent values.

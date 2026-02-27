@@ -70,7 +70,7 @@ func (w *Writer) canonicalizeDictString(arr *vortex.Array, dtype *vortex.DType) 
 	}
 	dictMetaBytes, err := proto.Marshal(dictMeta)
 	if err != nil {
-		return nil, nil, fmt.Errorf("dict: marshalling metadata: %w", err)
+		return nil, nil, fmt.Errorf("dict: marshaling metadata: %w", err)
 	}
 
 	dictEncIdx := w.registerArraySpec("vortex.dict")
@@ -225,7 +225,7 @@ func encodeVarBinView(strings []string) (viewsBuf []byte, dataBufs [][]byte) {
 			copy(viewsBuf[off+4:], s)
 		} else {
 			// Out-of-line: prefix (4 bytes), bufIdx (u32), offset (u32).
-			copy(viewsBuf[off+4:off+8], s[:4]) // first 4 bytes as prefix
+			copy(viewsBuf[off+4:off+8], s[:4])                 // first 4 bytes as prefix
 			binary.LittleEndian.PutUint32(viewsBuf[off+8:], 0) // bufIdx = 0
 			binary.LittleEndian.PutUint32(viewsBuf[off+12:], uint32(dataOffset))
 			dataBuf = append(dataBuf, s...)
@@ -295,7 +295,7 @@ func (w *Writer) canonicalizeFoRBitPacked(arr *vortex.Array, dtype *vortex.DType
 	refScalar := makeRefScalar(minVal, dtype.PType)
 	forMeta, err := proto.Marshal(refScalar)
 	if err != nil {
-		return nil, nil, fmt.Errorf("for: marshalling ref scalar: %w", err)
+		return nil, nil, fmt.Errorf("for: marshaling ref scalar: %w", err)
 	}
 
 	// Build BitPacked metadata.
@@ -305,7 +305,7 @@ func (w *Writer) canonicalizeFoRBitPacked(arr *vortex.Array, dtype *vortex.DType
 	}
 	bpMetaBytes, err := proto.Marshal(bpMeta)
 	if err != nil {
-		return nil, nil, fmt.Errorf("bitpacked: marshalling metadata: %w", err)
+		return nil, nil, fmt.Errorf("bitpacked: marshaling metadata: %w", err)
 	}
 
 	forEncIdx := w.registerArraySpec("fastlanes.for")
@@ -540,7 +540,7 @@ func (w *Writer) canonicalizePco(arr *vortex.Array, dtype *vortex.DType) (*array
 
 	metaBytes, err := proto.Marshal(meta)
 	if err != nil {
-		return nil, nil, fmt.Errorf("pco: marshalling metadata: %w", err)
+		return nil, nil, fmt.Errorf("pco: marshaling metadata: %w", err)
 	}
 
 	// Buffers: [chunk_meta_0, ..., chunk_meta_N, page_0, ..., page_M]

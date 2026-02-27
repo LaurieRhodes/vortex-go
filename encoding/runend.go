@@ -91,7 +91,7 @@ func endsToUint64(arr *vortex.Array, ptype vortex.PType) ([]uint64, error) {
 }
 
 // expandRuns expands run-end encoded data into a full array.
-func expandRuns(ends []uint64, vals *vortex.Array, dtype *vortex.DType, count, offset int, ) (*vortex.Array, error) {
+func expandRuns(ends []uint64, vals *vortex.Array, dtype *vortex.DType, count, offset int) (*vortex.Array, error) {
 	elemSize := vortex.PTypeSize(dtype.PType)
 	if elemSize == 0 {
 		// Non-primitive (e.g. strings) — handle specially.

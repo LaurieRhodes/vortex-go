@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l $(find . -name '*.go' -not -path './.venv/*' -not -path '*/target/*'))
+          if [ -n "$unformatted" ]; then
+            echo "Files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Build CLI tools
+        run: |
+          go build -o /dev/null ./cmd/vtxinfo
+          go build -o /dev/null ./cmd/vtxconvert
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [lint, build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run tests
+        run: go test ./... -count=1 -timeout 300s -v 2>&1 | tee test-output.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E '^ok|^FAIL|^--- (PASS|FAIL)' test-output.txt >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          passed=$(grep -c '^--- PASS' test-output.txt || true)
+          failed=$(grep -c '^--- FAIL' test-output.txt || true)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**${passed} passed, ${failed} failed**" >> $GITHUB_STEP_SUMMARY

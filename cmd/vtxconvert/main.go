@@ -176,10 +176,10 @@ func convert(inputPath, outputPath string) error {
 // --- Schema conversion ---
 
 type colInfo struct {
-	name       string
-	colIdx     int
-	kind       parquet.Kind
-	nullable   bool
+	name        string
+	colIdx      int
+	kind        parquet.Kind
+	nullable    bool
 	vortexDType *vortex.DType
 }
 
@@ -262,8 +262,8 @@ type columnData struct {
 	int64s  []int64
 	floats  []float32
 	doubles []float64
-	strings []string  // for ByteArray/FixedLenByteArray
-	nulls   []bool    // true = null
+	strings []string // for ByteArray/FixedLenByteArray
+	nulls   []bool   // true = null
 }
 
 func readRowGroup(rg parquet.RowGroup, colInfos []colInfo) ([]*columnData, error) {

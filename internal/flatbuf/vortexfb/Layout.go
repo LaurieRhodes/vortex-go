@@ -6,20 +6,20 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// A `Layout` is a recursive data structure describing the physical layout of Vortex arrays in random access storage.
-/// As a starting, concrete example, the first three Layout encodings are defined as:
-///
-/// 1. encoding == 1, `Flat` -> one buffer, zero child Layouts
-/// 2. encoding == 2, `Chunked` -> zero buffers, one or more child Layouts (used for chunks of rows)
-/// 3. encoding == 3, `Columnar` -> zero buffers, one or more child Layouts (used for columns of structs)
-///
-/// The `row_count` represents the number of rows represented by this Layout. This is very useful for
-/// pruning the Layout tree based on row filters.
-///
-/// The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
-/// `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
-/// uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
-/// the statistics table for the other chunks. 
+// / A `Layout` is a recursive data structure describing the physical layout of Vortex arrays in random access storage.
+// / As a starting, concrete example, the first three Layout encodings are defined as:
+// /
+// / 1. encoding == 1, `Flat` -> one buffer, zero child Layouts
+// / 2. encoding == 2, `Chunked` -> zero buffers, one or more child Layouts (used for chunks of rows)
+// / 3. encoding == 3, `Columnar` -> zero buffers, one or more child Layouts (used for columns of structs)
+// /
+// / The `row_count` represents the number of rows represented by this Layout. This is very useful for
+// / pruning the Layout tree based on row filters.
+// /
+// / The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
+// / `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
+// / uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
+// / the statistics table for the other chunks.
 type Layout struct {
 	_tab flatbuffers.Table
 }
@@ -47,7 +47,7 @@ func (rcv *Layout) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-/// The ID of the encoding used for this Layout.
+// / The ID of the encoding used for this Layout.
 func (rcv *Layout) Encoding() uint16 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
@@ -56,12 +56,12 @@ func (rcv *Layout) Encoding() uint16 {
 	return 0
 }
 
-/// The ID of the encoding used for this Layout.
+// / The ID of the encoding used for this Layout.
 func (rcv *Layout) MutateEncoding(n uint16) bool {
 	return rcv._tab.MutateUint16Slot(4, n)
 }
 
-/// The number of rows of data represented by this Layout.
+// / The number of rows of data represented by this Layout.
 func (rcv *Layout) RowCount() uint64 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
@@ -70,13 +70,13 @@ func (rcv *Layout) RowCount() uint64 {
 	return 0
 }
 
-/// The number of rows of data represented by this Layout.
+// / The number of rows of data represented by this Layout.
 func (rcv *Layout) MutateRowCount(n uint64) bool {
 	return rcv._tab.MutateUint64Slot(6, n)
 }
 
-/// Any additional metadata this layout needs to interpret its children.
-/// This does not include data-specific metadata, which the layout should store in a segment.
+// / Any additional metadata this layout needs to interpret its children.
+// / This does not include data-specific metadata, which the layout should store in a segment.
 func (rcv *Layout) Metadata(j int) byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
@@ -102,8 +102,8 @@ func (rcv *Layout) MetadataBytes() []byte {
 	return nil
 }
 
-/// Any additional metadata this layout needs to interpret its children.
-/// This does not include data-specific metadata, which the layout should store in a segment.
+// / Any additional metadata this layout needs to interpret its children.
+// / This does not include data-specific metadata, which the layout should store in a segment.
 func (rcv *Layout) MutateMetadata(j int, n byte) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
@@ -113,7 +113,7 @@ func (rcv *Layout) MutateMetadata(j int, n byte) bool {
 	return false
 }
 
-/// The children of this Layout.
+// / The children of this Layout.
 func (rcv *Layout) Children(obj *Layout, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
@@ -134,8 +134,8 @@ func (rcv *Layout) ChildrenLength() int {
 	return 0
 }
 
-/// The children of this Layout.
-/// Identifiers for each `SegmentSpec` of data required by this layout.
+// / The children of this Layout.
+// / Identifiers for each `SegmentSpec` of data required by this layout.
 func (rcv *Layout) Segments(j int) uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
@@ -153,7 +153,7 @@ func (rcv *Layout) SegmentsLength() int {
 	return 0
 }
 
-/// Identifiers for each `SegmentSpec` of data required by this layout.
+// / Identifiers for each `SegmentSpec` of data required by this layout.
 func (rcv *Layout) MutateSegments(j int, n uint32) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {

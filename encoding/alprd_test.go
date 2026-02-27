@@ -17,10 +17,6 @@ func buildALPRDNode(values []float64, rightBW int) (*vortex.ArrayNode, [][]byte)
 	n := len(values)
 
 	// Split each float64 into left and right parts.
-	type leftEntry struct {
-		pattern uint16
-		code    int
-	}
 
 	// Build dictionary from the left patterns.
 	patternToCode := make(map[uint16]int)
@@ -295,9 +291,9 @@ func TestALPRDWithPatches(t *testing.T) {
 			binary.LittleEndian.PutUint16(patchValBuf[i*2:], p.pattern)
 		}
 		patchesMeta = &encodings.PatchesMetadata{
-			Len:           uint64(len(patches)),
-			Offset:        0,
-			IndicesPtype:  int32(vortex.PTypeU32),
+			Len:          uint64(len(patches)),
+			Offset:       0,
+			IndicesPtype: int32(vortex.PTypeU32),
 		}
 	}
 

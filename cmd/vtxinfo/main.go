@@ -287,25 +287,25 @@ func sortStrings(s []string) {
 // --- JSON output ---
 
 type jsonOutput struct {
-	File       string           `json:"file"`
-	Size       int64            `json:"size"`
-	Version    uint16           `json:"version"`
-	Rows       uint64           `json:"rows"`
-	Schema     *jsonDType       `json:"schema"`
-	Segments   int              `json:"segments"`
-	Encodings  []string         `json:"encodings_used"`
-	LayoutTree *jsonLayoutNode  `json:"layout,omitempty"`
+	File       string          `json:"file"`
+	Size       int64           `json:"size"`
+	Version    uint16          `json:"version"`
+	Rows       uint64          `json:"rows"`
+	Schema     *jsonDType      `json:"schema"`
+	Segments   int             `json:"segments"`
+	Encodings  []string        `json:"encodings_used"`
+	LayoutTree *jsonLayoutNode `json:"layout,omitempty"`
 }
 
 type jsonDType struct {
-	Kind     string        `json:"kind"`
-	Nullable bool          `json:"nullable,omitempty"`
-	PType    string        `json:"ptype,omitempty"`
-	Fields   []jsonField   `json:"fields,omitempty"`
+	Kind     string      `json:"kind"`
+	Nullable bool        `json:"nullable,omitempty"`
+	PType    string      `json:"ptype,omitempty"`
+	Fields   []jsonField `json:"fields,omitempty"`
 }
 
 type jsonField struct {
-	Name string    `json:"name"`
+	Name string     `json:"name"`
 	Type *jsonDType `json:"type"`
 }
 
@@ -337,7 +337,7 @@ func printJSON(vf *vortex.File, fi os.FileInfo) {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(out)
+	_ = enc.Encode(out)
 }
 
 func dtypeToJSON(dt *vortex.DType) *jsonDType {

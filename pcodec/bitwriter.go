@@ -5,9 +5,9 @@ import "encoding/binary"
 // BitWriter writes bits in little-endian order, mirroring the Rust pco BitWriter.
 // It buffers bits and flushes to the destination byte slice.
 type BitWriter struct {
-	dst          []byte
-	bitBuf       uint64
-	bitsPending  Bitlen // number of valid bits in bitBuf
+	dst         []byte
+	bitBuf      uint64
+	bitsPending Bitlen // number of valid bits in bitBuf
 }
 
 // NewBitWriter creates a new BitWriter that appends to dst.

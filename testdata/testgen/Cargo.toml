@@ -3,6 +3,8 @@ name = "testgen"
 version = "0.1.0"
 edition = "2024"
 
+# NOTE: Dependencies use local paths to the Rust vortex workspace (../vortex/).
+# Adjust paths if your checkout location differs.
 [dependencies]
 vortex-array = { path = "/media/laurie/Data/Github/vortex/vortex-array" }
 vortex-buffer = { path = "/media/laurie/Data/Github/vortex/vortex-buffer" }
@@ -20,3 +22,7 @@ vortex-fastlanes = { path = "/media/laurie/Data/Github/vortex/encodings/fastlane
 [[bin]]
 name = "read_go_file"
 path = "src/bin/read_go_file.rs"
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"

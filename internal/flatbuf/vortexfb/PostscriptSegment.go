@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// A `PostscriptSegment` describes the location of a segment in the file without referencing any
-/// specification objects. That is, encryption and compression are defined inline.
+// / A `PostscriptSegment` describes the location of a segment in the file without referencing any
+// / specification objects. That is, encryption and compression are defined inline.
 type PostscriptSegment struct {
 	_tab flatbuffers.Table
 }
