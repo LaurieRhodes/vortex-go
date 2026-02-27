@@ -72,6 +72,13 @@ func decodeWithContext(node *vortex.ArrayNode, dtype *vortex.DType, rowCount uin
 	return dec.Decode(node, nodeBuffers, dtype, rowCount, ctx)
 }
 
+func init() {
+	// Register the DecodeArray function with the parent vortex package
+	// to break the import cycle. The Scan API in vortex needs to decode
+	// arrays but can't import this package directly.
+	vortex.RegisterDecoder(DecodeArray)
+}
+
 // DecodeChild is a convenience for decoders that need to recursively decode a child node.
 func DecodeChild(node *vortex.ArrayNode, childIdx int, dtype *vortex.DType, rowCount uint64, ctx *DecodeContext) (*vortex.Array, error) {
 	if childIdx >= len(node.Children) {

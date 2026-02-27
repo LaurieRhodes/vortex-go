@@ -3,7 +3,6 @@ package encoding
 import (
 	"encoding/binary"
 	"fmt"
-	"math/bits"
 
 	vortex "github.com/LaurieRhodes/vortex-go"
 	"github.com/LaurieRhodes/vortex-go/internal/proto/encodings"
@@ -13,18 +12,40 @@ import (
 // BitPackedDecoder decodes fastlanes.bitpacked arrays.
 //
 // FastLanes bitpacking stores N-bit integers in a dense buffer using a transposed
-// layout for SIMD parallelism. Values are arranged in 1024-element blocks.
-// Within each block, values are transposed across "lanes" determined by the
-// element type width:
+// layout designed for SIMD parallelism. The packed buffer is typed — it's an array
+// of T-sized elements (where T matches the logical PType width) arranged across
+// "lanes".
 //
-//	u8:  128 lanes × 8 rows   (1024/8  = 128)
-//	u16:  64 lanes × 16 rows  (1024/16 = 64)
-//	u32:  32 lanes × 32 rows  (1024/32 = 32)
-//	u64:  16 lanes × 64 rows  (1024/64 = 16)
+// For a 1024-element block with element type T (having tBits = sizeof(T)*8 bits):
 //
-// For logical element index i: lane = i % numLanes, row = i / numLanes.
-// Its bits are stored at transposed position: lane * rowsPerLane + row.
+//	nLanes = 1024 / tBits
+//	rowsPerLane = tBits
+//
+// The spiraldb/fastlanes Rust crate uses a reordered transposition (not the
+// original FastLanes paper order). The mapping from (row, lane) → logical index is:
+//
+//	FL_ORDER = [0, 4, 2, 6, 1, 5, 3, 7]
+//	logIdx = FL_ORDER[row/8]*16 + (row%8)*128 + lane
+//
+// The inverse (logical index → row, lane) is:
+//
+//	lane = logIdx % nLanes
+//	s = logIdx / 128
+//	fl = (logIdx - s*128 - lane) / 16
+//	o = FL_ORDER[fl]          // FL_ORDER is its own inverse
+//	row = o*8 + s
+//
+// Then the physical packed position for a value at (row, lane) with bit_width W:
+//
+//	startBit = row * W
+//	word = startBit / tBits
+//	shift = startBit % tBits
+//	physIdx = word * nLanes + lane
 type BitPackedDecoder struct{}
+
+// flOrder is the FastLanes transposition order used by the spiraldb/fastlanes Rust
+// crate. It is its own inverse: flOrder[flOrder[i]] == i for all i in 0..8.
+var flOrder = [8]int{0, 4, 2, 6, 1, 5, 3, 7}
 
 const fastlanesBlockSize = 1024
 
@@ -46,33 +67,19 @@ func (d *BitPackedDecoder) Decode(node *vortex.ArrayNode, buffers [][]byte, dtyp
 
 	if bw == 0 {
 		// bit_width 0 means all values are zero (or handled by patches).
-		return makeZeroArray(dtype, int(rowCount), node, ctx)
+		return makeZeroArray(dtype, int(rowCount), node)
 	}
 
 	if len(buffers) < 1 {
 		return nil, fmt.Errorf("bitpacked: expected at least 1 buffer, got %d", len(buffers))
 	}
 
-	elemSize := vortex.PTypeSize(dtype.PType)
 	buf := buffers[0]
+	elemSize := vortex.PTypeSize(dtype.PType)
 
-	// Unpack based on element type width.
-	var outBuf []byte
-	var err error
-	switch elemSize {
-	case 1:
-		outBuf, err = unpackFastLanes[uint8](buf, bw, offset, int(rowCount), 128, 8, getU8, putU8)
-	case 2:
-		outBuf, err = unpackFastLanes[uint16](buf, bw, offset, int(rowCount), 64, 16, getU16, putU16)
-	case 4:
-		outBuf, err = unpackFastLanes[uint32](buf, bw, offset, int(rowCount), 32, 32, getU32, putU32)
-	case 8:
-		outBuf, err = unpackFastLanes[uint64](buf, bw, offset, int(rowCount), 16, 64, getU64, putU64)
-	default:
-		return nil, fmt.Errorf("bitpacked: unsupported element size %d", elemSize)
-	}
+	outBuf, err := unpackFastLanesTyped(buf, bw, offset, int(rowCount), elemSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bitpacked: %w", err)
 	}
 
 	arr := &vortex.Array{
@@ -84,103 +91,128 @@ func (d *BitPackedDecoder) Decode(node *vortex.ArrayNode, buffers [][]byte, dtyp
 
 	// Handle patches (outlier values stored separately).
 	if meta.Patches != nil && len(node.Children) > 0 {
-		// Patches child contains the exception values at their original indices.
-		// For now, we decode the patches child and apply them.
 		// TODO: implement full patch application.
 	}
 
 	return arr, nil
 }
 
-type getFunc[T any] func([]byte, int) T
-type putFunc[T any] func([]byte, int, T)
+// unpackFastLanesTyped unpacks a FastLanes-transposed bitpacked buffer using the
+// typed-element algorithm. The packed buffer is treated as an array of T-sized
+// elements (where T has width elemSize bytes), accessed at stride nLanes.
+//
+// The logical-to-physical mapping uses the FL_ORDER transposition from the
+// spiraldb/fastlanes Rust crate.
+func unpackFastLanesTyped(packed []byte, bw, offset, count, elemSize int) ([]byte, error) {
+	tBits := elemSize * 8
+	nLanes := fastlanesBlockSize / tBits
+	outBuf := make([]byte, count*elemSize)
 
-// unpackFastLanes unpacks a FastLanes-transposed bitpacked buffer.
-func unpackFastLanes[T uint8 | uint16 | uint32 | uint64](
-	packed []byte,
-	bw, offset, count int,
-	numLanes, rowsPerLane int,
-	get getFunc[T],
-	put putFunc[T],
-) ([]byte, error) {
-	elemSize := int(bits.Len64(uint64(T(0))+1) / 8) // hack; use actual size
-	// Calculate element size from type.
-	var zero T
-	switch any(zero).(type) {
-	case uint8:
-		elemSize = 1
-	case uint16:
-		elemSize = 2
-	case uint32:
-		elemSize = 4
-	case uint64:
-		elemSize = 8
-	}
-
-	outBuf := make([]byte, (offset+count)*elemSize)
-
-	// Number of 1024-element blocks.
 	totalElems := offset + count
 	numBlocks := (totalElems + fastlanesBlockSize - 1) / fastlanesBlockSize
 
-	// Each block occupies 128 * bw bytes of packed data (for any element width).
-	bytesPerBlock := 128 * bw
+	// Each block: nLanes lanes × bw packed T-elements per lane.
+	// Total T-elements per block = nLanes * bw.
+	bytesPerBlock := nLanes * bw * elemSize
+
 	if len(packed) < numBlocks*bytesPerBlock {
-		return nil, fmt.Errorf("bitpacked: buffer too small (%d bytes for %d blocks of %d bytes)",
-			len(packed), numBlocks, bytesPerBlock)
+		return nil, fmt.Errorf("buffer too small (%d bytes, need %d for %d blocks)",
+			len(packed), numBlocks*bytesPerBlock, numBlocks)
 	}
 
-	mask := T((uint64(1) << bw) - 1)
+	mask := uint64((1 << bw) - 1)
 
 	for block := 0; block < numBlocks; block++ {
-		blockPacked := packed[block*bytesPerBlock : (block+1)*bytesPerBlock]
+		blockStart := block * bytesPerBlock
+		blockPacked := packed[blockStart : blockStart+bytesPerBlock]
 
-		for lane := 0; lane < numLanes; lane++ {
-			for row := 0; row < rowsPerLane; row++ {
-				elemIdx := block*fastlanesBlockSize + row*numLanes + lane
-				if elemIdx < offset || elemIdx >= offset+count {
-					continue
-				}
-
-				// Transposed bit position within this block.
-				transPos := lane*rowsPerLane + row
-				bitOff := transPos * bw
-				byteOff := bitOff / 8
-				bitShift := uint(bitOff % 8)
-
-				// Read enough bytes to cover the value.
-				var raw T
-				switch elemSize {
-				case 1:
-					if byteOff < len(blockPacked) {
-						raw = T(blockPacked[byteOff])
-					}
-				case 2:
-					if byteOff+1 < len(blockPacked) {
-						raw = T(binary.LittleEndian.Uint16(blockPacked[byteOff:]))
-					}
-				case 4:
-					if byteOff+3 < len(blockPacked) {
-						raw = T(binary.LittleEndian.Uint32(blockPacked[byteOff:]))
-					}
-				case 8:
-					if byteOff+7 < len(blockPacked) {
-						raw = T(binary.LittleEndian.Uint64(blockPacked[byteOff:]))
-					}
-				}
-
-				val := (raw >> bitShift) & mask
-				outIdx := elemIdx - offset
-				put(outBuf, outIdx, val)
+		for logIdx := 0; logIdx < fastlanesBlockSize; logIdx++ {
+			globalIdx := block*fastlanesBlockSize + logIdx
+			if globalIdx < offset || globalIdx >= offset+count {
+				continue
 			}
+
+			// Compute (row, lane) from the logical index using the FL_ORDER
+			// transposition. This is the inverse of:
+			//   index(row, lane) = flOrder[row/8]*16 + (row%8)*128 + lane
+			lane := logIdx % nLanes
+			s := logIdx / 128
+			flVal := (logIdx - s*128 - lane) / 16
+			o := flOrder[flVal]
+			row := o*8 + s
+
+			// Now use (row, lane) to locate the bits in the packed buffer.
+			startBit := row * bw
+			word := startBit / tBits
+			shift := startBit % tBits
+
+			// Physical byte position within the block.
+			physByte := (word*nLanes + lane) * elemSize
+
+			// Read the T-element at the physical position.
+			raw := readTypedElement(blockPacked, physByte, elemSize)
+
+			// Extract the value, handling the case where it spans two T-elements.
+			var val uint64
+			if shift+bw > tBits {
+				// Value straddles two T-sized words. Extract bits from each
+				// separately to avoid overflow when tBits == 64.
+				nextPhysByte := ((word+1)*nLanes + lane) * elemSize
+				next := readTypedElement(blockPacked, nextPhysByte, elemSize)
+				lowerBits := raw >> uint(shift) // (tBits - shift) bits from first word
+				upperMask := uint64((1 << uint(shift+bw-tBits)) - 1)
+				val = lowerBits | ((next & upperMask) << uint(tBits-shift))
+			} else {
+				val = (raw >> uint(shift)) & mask
+			}
+
+			// Write to output.
+			outIdx := globalIdx - offset
+			writeTypedElement(outBuf, outIdx*elemSize, elemSize, val)
 		}
 	}
 
 	return outBuf, nil
 }
 
+// readTypedElement reads a little-endian element of the given size from buf at offset.
+func readTypedElement(buf []byte, offset, elemSize int) uint64 {
+	if offset+elemSize > len(buf) {
+		return 0
+	}
+	switch elemSize {
+	case 1:
+		return uint64(buf[offset])
+	case 2:
+		return uint64(binary.LittleEndian.Uint16(buf[offset:]))
+	case 4:
+		return uint64(binary.LittleEndian.Uint32(buf[offset:]))
+	case 8:
+		return binary.LittleEndian.Uint64(buf[offset:])
+	default:
+		return 0
+	}
+}
+
+// writeTypedElement writes a little-endian element of the given size to buf at offset.
+func writeTypedElement(buf []byte, offset, elemSize int, val uint64) {
+	if offset+elemSize > len(buf) {
+		return
+	}
+	switch elemSize {
+	case 1:
+		buf[offset] = byte(val)
+	case 2:
+		binary.LittleEndian.PutUint16(buf[offset:], uint16(val))
+	case 4:
+		binary.LittleEndian.PutUint32(buf[offset:], uint32(val))
+	case 8:
+		binary.LittleEndian.PutUint64(buf[offset:], val)
+	}
+}
+
 // makeZeroArray creates an all-zero primitive array.
-func makeZeroArray(dtype *vortex.DType, count int, node *vortex.ArrayNode, ctx *DecodeContext) (*vortex.Array, error) {
+func makeZeroArray(dtype *vortex.DType, count int, node *vortex.ArrayNode) (*vortex.Array, error) {
 	elemSize := vortex.PTypeSize(dtype.PType)
 	return &vortex.Array{
 		DType:   dtype,
@@ -190,19 +222,12 @@ func makeZeroArray(dtype *vortex.DType, count int, node *vortex.ArrayNode, ctx *
 	}, nil
 }
 
-// Value getter/putter functions for each width.
-func getU8(b []byte, i int) uint8 { return b[i] }
-func putU8(b []byte, i int, v uint8) { b[i] = v }
-
-func getU16(b []byte, i int) uint16 { return binary.LittleEndian.Uint16(b[i*2:]) }
-func putU16(b []byte, i int, v uint16) { binary.LittleEndian.PutUint16(b[i*2:], v) }
-
-func getU32(b []byte, i int) uint32 { return binary.LittleEndian.Uint32(b[i*4:]) }
-func putU32(b []byte, i int, v uint32) { binary.LittleEndian.PutUint32(b[i*4:], v) }
-
-func getU64(b []byte, i int) uint64 { return binary.LittleEndian.Uint64(b[i*8:]) }
-func putU64(b []byte, i int, v uint64) { binary.LittleEndian.PutUint64(b[i*8:], v) }
-
 func init() {
 	Register("fastlanes.bitpacked", &BitPackedDecoder{})
+}
+
+// ExportUnpackFastLanesTyped is an exported wrapper around unpackFastLanesTyped
+// for use in cross-package tests (e.g. writer pack→unpack round-trip verification).
+func ExportUnpackFastLanesTyped(packed []byte, bw, offset, count, elemSize int) ([]byte, error) {
+	return unpackFastLanesTyped(packed, bw, offset, count, elemSize)
 }

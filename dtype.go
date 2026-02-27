@@ -146,3 +146,9 @@ func (k DTypeKind) String() string {
 		return "unknown"
 	}
 }
+
+// PTypeFromProto converts a protobuf int32 PType value to the Go PType enum.
+// The values match the Rust PType repr(u8): U8=0, U16=1, ..., F64=10.
+func PTypeFromProto(v int32) PType {
+	return PType(v)
+}

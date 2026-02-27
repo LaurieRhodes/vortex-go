@@ -1,0 +1,17 @@
+# Rust build artifacts (test data generator)
+testdata/testgen/target/
+
+# Go build artifacts
+vtxinfo
+*.exe
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

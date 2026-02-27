@@ -130,53 +130,6 @@ func generateSequence(baseSV, mulSV *scalar.ScalarValue, ptype vortex.PType, cou
 	return buf, nil
 }
 
-// --- Scalar value extractors ---
-
-func scalarToInt64(sv *scalar.ScalarValue) int64 {
-	switch v := sv.Kind.(type) {
-	case *scalar.ScalarValue_Int64Value:
-		return v.Int64Value
-	case *scalar.ScalarValue_Uint64Value:
-		return int64(v.Uint64Value)
-	case *scalar.ScalarValue_F32Value:
-		return int64(v.F32Value)
-	case *scalar.ScalarValue_F64Value:
-		return int64(v.F64Value)
-	default:
-		return 0
-	}
-}
-
-func scalarToUint64(sv *scalar.ScalarValue) uint64 {
-	switch v := sv.Kind.(type) {
-	case *scalar.ScalarValue_Uint64Value:
-		return v.Uint64Value
-	case *scalar.ScalarValue_Int64Value:
-		return uint64(v.Int64Value)
-	case *scalar.ScalarValue_F32Value:
-		return uint64(v.F32Value)
-	case *scalar.ScalarValue_F64Value:
-		return uint64(v.F64Value)
-	default:
-		return 0
-	}
-}
-
-func scalarToFloat64(sv *scalar.ScalarValue) float64 {
-	switch v := sv.Kind.(type) {
-	case *scalar.ScalarValue_F64Value:
-		return v.F64Value
-	case *scalar.ScalarValue_F32Value:
-		return float64(v.F32Value)
-	case *scalar.ScalarValue_Int64Value:
-		return float64(v.Int64Value)
-	case *scalar.ScalarValue_Uint64Value:
-		return float64(v.Uint64Value)
-	default:
-		return 0
-	}
-}
-
 func init() {
 	Register("vortex.sequence", &SequenceDecoder{})
 }

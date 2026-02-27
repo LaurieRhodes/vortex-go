@@ -978,6 +978,142 @@ func (x *ZstdBuffersMetadata) GetBufferAlignments() []uint32 {
 	return nil
 }
 
+// DictLayoutMetadata for "vortex.dict" layout nodes.
+// Source: vortex-layout/src/layouts/dict/mod.rs
+type DictLayoutMetadata struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PType enum value for the codes array
+	CodesPtype int32 `protobuf:"varint,1,opt,name=codes_ptype,json=codesPtype,proto3" json:"codes_ptype,omitempty"`
+	// Whether codes are nullable (added after stabilisation)
+	IsNullableCodes *bool `protobuf:"varint,2,opt,name=is_nullable_codes,json=isNullableCodes,proto3,oneof" json:"is_nullable_codes,omitempty"`
+	// Whether all dictionary values are referenced by at least one code
+	AllValuesReferenced *bool `protobuf:"varint,3,opt,name=all_values_referenced,json=allValuesReferenced,proto3,oneof" json:"all_values_referenced,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *DictLayoutMetadata) Reset() {
+	*x = DictLayoutMetadata{}
+	mi := &file_encodings_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DictLayoutMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DictLayoutMetadata) ProtoMessage() {}
+
+func (x *DictLayoutMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_encodings_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DictLayoutMetadata.ProtoReflect.Descriptor instead.
+func (*DictLayoutMetadata) Descriptor() ([]byte, []int) {
+	return file_encodings_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DictLayoutMetadata) GetCodesPtype() int32 {
+	if x != nil {
+		return x.CodesPtype
+	}
+	return 0
+}
+
+func (x *DictLayoutMetadata) GetIsNullableCodes() bool {
+	if x != nil && x.IsNullableCodes != nil {
+		return *x.IsNullableCodes
+	}
+	return false
+}
+
+func (x *DictLayoutMetadata) GetAllValuesReferenced() bool {
+	if x != nil && x.AllValuesReferenced != nil {
+		return *x.AllValuesReferenced
+	}
+	return false
+}
+
+// DictArrayMetadata for "vortex.dict" array encoding.
+// Source: vortex-array/src/arrays/dict/array.rs
+type DictArrayMetadata struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ValuesLen uint32                 `protobuf:"varint,1,opt,name=values_len,json=valuesLen,proto3" json:"values_len,omitempty"`
+	// PType enum value for the codes
+	CodesPtype          int32 `protobuf:"varint,2,opt,name=codes_ptype,json=codesPtype,proto3" json:"codes_ptype,omitempty"`
+	IsNullableCodes     *bool `protobuf:"varint,3,opt,name=is_nullable_codes,json=isNullableCodes,proto3,oneof" json:"is_nullable_codes,omitempty"`
+	AllValuesReferenced *bool `protobuf:"varint,4,opt,name=all_values_referenced,json=allValuesReferenced,proto3,oneof" json:"all_values_referenced,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *DictArrayMetadata) Reset() {
+	*x = DictArrayMetadata{}
+	mi := &file_encodings_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DictArrayMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DictArrayMetadata) ProtoMessage() {}
+
+func (x *DictArrayMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_encodings_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DictArrayMetadata.ProtoReflect.Descriptor instead.
+func (*DictArrayMetadata) Descriptor() ([]byte, []int) {
+	return file_encodings_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DictArrayMetadata) GetValuesLen() uint32 {
+	if x != nil {
+		return x.ValuesLen
+	}
+	return 0
+}
+
+func (x *DictArrayMetadata) GetCodesPtype() int32 {
+	if x != nil {
+		return x.CodesPtype
+	}
+	return 0
+}
+
+func (x *DictArrayMetadata) GetIsNullableCodes() bool {
+	if x != nil && x.IsNullableCodes != nil {
+		return *x.IsNullableCodes
+	}
+	return false
+}
+
+func (x *DictArrayMetadata) GetAllValuesReferenced() bool {
+	if x != nil && x.AllValuesReferenced != nil {
+		return *x.AllValuesReferenced
+	}
+	return false
+}
+
 // PcoPageInfo is a sub-message for PcoChunkInfo.
 // Source: encodings/pco/src/lib.rs
 type PcoPageInfo struct {
@@ -989,7 +1125,7 @@ type PcoPageInfo struct {
 
 func (x *PcoPageInfo) Reset() {
 	*x = PcoPageInfo{}
-	mi := &file_encodings_proto_msgTypes[15]
+	mi := &file_encodings_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1001,7 +1137,7 @@ func (x *PcoPageInfo) String() string {
 func (*PcoPageInfo) ProtoMessage() {}
 
 func (x *PcoPageInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_encodings_proto_msgTypes[15]
+	mi := &file_encodings_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1014,7 +1150,7 @@ func (x *PcoPageInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcoPageInfo.ProtoReflect.Descriptor instead.
 func (*PcoPageInfo) Descriptor() ([]byte, []int) {
-	return file_encodings_proto_rawDescGZIP(), []int{15}
+	return file_encodings_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PcoPageInfo) GetNValues() uint32 {
@@ -1035,7 +1171,7 @@ type PcoChunkInfo struct {
 
 func (x *PcoChunkInfo) Reset() {
 	*x = PcoChunkInfo{}
-	mi := &file_encodings_proto_msgTypes[16]
+	mi := &file_encodings_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1047,7 +1183,7 @@ func (x *PcoChunkInfo) String() string {
 func (*PcoChunkInfo) ProtoMessage() {}
 
 func (x *PcoChunkInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_encodings_proto_msgTypes[16]
+	mi := &file_encodings_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1060,7 +1196,7 @@ func (x *PcoChunkInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcoChunkInfo.ProtoReflect.Descriptor instead.
 func (*PcoChunkInfo) Descriptor() ([]byte, []int) {
-	return file_encodings_proto_rawDescGZIP(), []int{16}
+	return file_encodings_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PcoChunkInfo) GetPages() []*PcoPageInfo {
@@ -1082,7 +1218,7 @@ type PcoMetadata struct {
 
 func (x *PcoMetadata) Reset() {
 	*x = PcoMetadata{}
-	mi := &file_encodings_proto_msgTypes[17]
+	mi := &file_encodings_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1094,7 +1230,7 @@ func (x *PcoMetadata) String() string {
 func (*PcoMetadata) ProtoMessage() {}
 
 func (x *PcoMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_encodings_proto_msgTypes[17]
+	mi := &file_encodings_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1107,7 +1243,7 @@ func (x *PcoMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcoMetadata.ProtoReflect.Descriptor instead.
 func (*PcoMetadata) Descriptor() ([]byte, []int) {
-	return file_encodings_proto_rawDescGZIP(), []int{17}
+	return file_encodings_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PcoMetadata) GetHeader() []byte {
@@ -1203,7 +1339,23 @@ const file_encodings_proto_rawDesc = "" +
 	"\x11inner_encoding_id\x18\x01 \x01(\tR\x0finnerEncodingId\x12%\n" +
 	"\x0einner_metadata\x18\x02 \x01(\fR\rinnerMetadata\x12-\n" +
 	"\x12uncompressed_sizes\x18\x03 \x03(\x04R\x11uncompressedSizes\x12+\n" +
-	"\x11buffer_alignments\x18\x04 \x03(\rR\x10bufferAlignments\"(\n" +
+	"\x11buffer_alignments\x18\x04 \x03(\rR\x10bufferAlignments\"\xcf\x01\n" +
+	"\x12DictLayoutMetadata\x12\x1f\n" +
+	"\vcodes_ptype\x18\x01 \x01(\x05R\n" +
+	"codesPtype\x12/\n" +
+	"\x11is_nullable_codes\x18\x02 \x01(\bH\x00R\x0fisNullableCodes\x88\x01\x01\x127\n" +
+	"\x15all_values_referenced\x18\x03 \x01(\bH\x01R\x13allValuesReferenced\x88\x01\x01B\x14\n" +
+	"\x12_is_nullable_codesB\x18\n" +
+	"\x16_all_values_referenced\"\xed\x01\n" +
+	"\x11DictArrayMetadata\x12\x1d\n" +
+	"\n" +
+	"values_len\x18\x01 \x01(\rR\tvaluesLen\x12\x1f\n" +
+	"\vcodes_ptype\x18\x02 \x01(\x05R\n" +
+	"codesPtype\x12/\n" +
+	"\x11is_nullable_codes\x18\x03 \x01(\bH\x00R\x0fisNullableCodes\x88\x01\x01\x127\n" +
+	"\x15all_values_referenced\x18\x04 \x01(\bH\x01R\x13allValuesReferenced\x88\x01\x01B\x14\n" +
+	"\x12_is_nullable_codesB\x18\n" +
+	"\x16_all_values_referenced\"(\n" +
 	"\vPcoPageInfo\x12\x19\n" +
 	"\bn_values\x18\x01 \x01(\rR\anValues\"C\n" +
 	"\fPcoChunkInfo\x123\n" +
@@ -1224,7 +1376,7 @@ func file_encodings_proto_rawDescGZIP() []byte {
 	return file_encodings_proto_rawDescData
 }
 
-var file_encodings_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_encodings_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_encodings_proto_goTypes = []any{
 	(*PatchesMetadata)(nil),           // 0: vortex.encodings.PatchesMetadata
 	(*BitPackedMetadata)(nil),         // 1: vortex.encodings.BitPackedMetadata
@@ -1241,21 +1393,23 @@ var file_encodings_proto_goTypes = []any{
 	(*ZstdFrameMetadata)(nil),         // 12: vortex.encodings.ZstdFrameMetadata
 	(*ZstdMetadata)(nil),              // 13: vortex.encodings.ZstdMetadata
 	(*ZstdBuffersMetadata)(nil),       // 14: vortex.encodings.ZstdBuffersMetadata
-	(*PcoPageInfo)(nil),               // 15: vortex.encodings.PcoPageInfo
-	(*PcoChunkInfo)(nil),              // 16: vortex.encodings.PcoChunkInfo
-	(*PcoMetadata)(nil),               // 17: vortex.encodings.PcoMetadata
-	(*scalar.ScalarValue)(nil),        // 18: vortex.scalar.ScalarValue
+	(*DictLayoutMetadata)(nil),        // 15: vortex.encodings.DictLayoutMetadata
+	(*DictArrayMetadata)(nil),         // 16: vortex.encodings.DictArrayMetadata
+	(*PcoPageInfo)(nil),               // 17: vortex.encodings.PcoPageInfo
+	(*PcoChunkInfo)(nil),              // 18: vortex.encodings.PcoChunkInfo
+	(*PcoMetadata)(nil),               // 19: vortex.encodings.PcoMetadata
+	(*scalar.ScalarValue)(nil),        // 20: vortex.scalar.ScalarValue
 }
 var file_encodings_proto_depIdxs = []int32{
 	0,  // 0: vortex.encodings.BitPackedMetadata.patches:type_name -> vortex.encodings.PatchesMetadata
-	18, // 1: vortex.encodings.SequenceMetadata.base:type_name -> vortex.scalar.ScalarValue
-	18, // 2: vortex.encodings.SequenceMetadata.multiplier:type_name -> vortex.scalar.ScalarValue
+	20, // 1: vortex.encodings.SequenceMetadata.base:type_name -> vortex.scalar.ScalarValue
+	20, // 2: vortex.encodings.SequenceMetadata.multiplier:type_name -> vortex.scalar.ScalarValue
 	0,  // 3: vortex.encodings.SparseMetadata.patches:type_name -> vortex.encodings.PatchesMetadata
 	0,  // 4: vortex.encodings.ALPMetadata.patches:type_name -> vortex.encodings.PatchesMetadata
 	0,  // 5: vortex.encodings.ALPRDMetadata.patches:type_name -> vortex.encodings.PatchesMetadata
 	12, // 6: vortex.encodings.ZstdMetadata.frames:type_name -> vortex.encodings.ZstdFrameMetadata
-	15, // 7: vortex.encodings.PcoChunkInfo.pages:type_name -> vortex.encodings.PcoPageInfo
-	16, // 8: vortex.encodings.PcoMetadata.chunks:type_name -> vortex.encodings.PcoChunkInfo
+	17, // 7: vortex.encodings.PcoChunkInfo.pages:type_name -> vortex.encodings.PcoPageInfo
+	18, // 8: vortex.encodings.PcoMetadata.chunks:type_name -> vortex.encodings.PcoChunkInfo
 	9,  // [9:9] is the sub-list for method output_type
 	9,  // [9:9] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
@@ -1271,13 +1425,15 @@ func file_encodings_proto_init() {
 	file_encodings_proto_msgTypes[0].OneofWrappers = []any{}
 	file_encodings_proto_msgTypes[1].OneofWrappers = []any{}
 	file_encodings_proto_msgTypes[9].OneofWrappers = []any{}
+	file_encodings_proto_msgTypes[15].OneofWrappers = []any{}
+	file_encodings_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_encodings_proto_rawDesc), len(file_encodings_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

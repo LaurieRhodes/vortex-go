@@ -160,6 +160,29 @@ message ZstdBuffersMetadata {
   repeated uint32 buffer_alignments = 4;
 }
 
+// --- Layout metadata ---
+
+// DictLayoutMetadata for "vortex.dict" layout nodes.
+// Source: vortex-layout/src/layouts/dict/mod.rs
+message DictLayoutMetadata {
+  // PType enum value for the codes array
+  int32 codes_ptype = 1;
+  // Whether codes are nullable (added after stabilisation)
+  optional bool is_nullable_codes = 2;
+  // Whether all dictionary values are referenced by at least one code
+  optional bool all_values_referenced = 3;
+}
+
+// DictArrayMetadata for "vortex.dict" array encoding.
+// Source: vortex-array/src/arrays/dict/array.rs
+message DictArrayMetadata {
+  uint32 values_len = 1;
+  // PType enum value for the codes
+  int32 codes_ptype = 2;
+  optional bool is_nullable_codes = 3;
+  optional bool all_values_referenced = 4;
+}
+
 // --- Pco (PCodec) ---
 
 // PcoPageInfo is a sub-message for PcoChunkInfo.

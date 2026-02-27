@@ -1,0 +1,22 @@
+[package]
+name = "testgen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vortex-array = { path = "/media/laurie/Data/Github/vortex/vortex-array" }
+vortex-buffer = { path = "/media/laurie/Data/Github/vortex/vortex-buffer" }
+vortex-error = { path = "/media/laurie/Data/Github/vortex/vortex-error" }
+vortex-file = { path = "/media/laurie/Data/Github/vortex/vortex-file", features = ["zstd"] }
+vortex-io = { path = "/media/laurie/Data/Github/vortex/vortex-io", features = ["tokio"] }
+vortex-layout = { path = "/media/laurie/Data/Github/vortex/vortex-layout" }
+vortex-btrblocks = { path = "/media/laurie/Data/Github/vortex/vortex-btrblocks", features = ["zstd"] }
+vortex-scan = { path = "/media/laurie/Data/Github/vortex/vortex-scan" }
+vortex-session = { path = "/media/laurie/Data/Github/vortex/vortex-session" }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+vortex-fastlanes = { path = "/media/laurie/Data/Github/vortex/encodings/fastlanes" }
+
+[[bin]]
+name = "read_go_file"
+path = "src/bin/read_go_file.rs"

@@ -43,7 +43,7 @@ func readColumnData(t *testing.T, vf *vortex.File, colName string) []*vortex.Arr
 
 	// If there's a Dict layout, decode values + codes and reconstruct.
 	if dictLayout != nil {
-		return readDictLayoutData(t, vf, dataLayout, dictLayout, colDType)
+		return readDictLayoutData(t, vf, colLayout, dataLayout, dictLayout, colDType)
 	}
 
 	return readFlatLayoutData(t, vf, dataLayout, colDType)
@@ -76,8 +76,11 @@ func readFlatLayoutData(t *testing.T, vf *vortex.File, dataLayout *vortex.Layout
 
 // readDictLayoutData handles Dict layout: decode values + codes from separate segments,
 // then reconstruct the full column by looking up codes in the values dictionary.
-func readDictLayoutData(t *testing.T, vf *vortex.File, codesLayout, valuesLayout *vortex.Layout, colDType *vortex.DType) []*vortex.Array {
+func readDictLayoutData(t *testing.T, vf *vortex.File, colLayout *vortex.Layout, codesLayout, valuesLayout *vortex.Layout, colDType *vortex.DType) []*vortex.Array {
 	t.Helper()
+
+	// Try to extract the codes PType from the Dict layout metadata (protobuf).
+	dictCodesPType := vortex.ParseDictLayoutCodesPType(colLayout)
 
 	// Decode dictionary values.
 	valFlats := vortex.CollectFlatLayouts(valuesLayout)
@@ -109,9 +112,14 @@ func readDictLayoutData(t *testing.T, vf *vortex.File, codesLayout, valuesLayout
 			t.Fatalf("ReadFlatSegment(codes): %v", err)
 		}
 
-		// Auto-detect codes PType. For primitive encoding, derive from buffer
-		// size. For bitpacked/other encodings, use smallest PType that fits.
-		codesDType := detectCodesPType(node, buffers, flat.RowCount, valuesLayout.RowCount)
+		// Use dict layout metadata for codes PType if available,
+		// otherwise fall back to heuristic detection.
+		var codesDType *vortex.DType
+		if dictCodesPType >= 0 {
+			codesDType = &vortex.DType{Kind: vortex.DTypePrimitive, PType: dictCodesPType}
+		} else {
+			codesDType = detectCodesPType(node, buffers, flat.RowCount, valuesLayout.RowCount)
+		}
 
 		arr, err := DecodeArray(node, buffers, codesDType, flat.RowCount)
 		if err != nil {
@@ -345,6 +353,8 @@ func TestReadNullsVtxMaybeInt(t *testing.T) {
 }
 
 func TestReadStringsVtx(t *testing.T) {
+	// strings.vtx is a Rust-generated file with dict+fastlanes.bitpacked encoding.
+	// It contains 1000 rows cycling through 5 names.
 	vf := openTestFile(t, "strings.vtx")
 
 	arrays := readColumnData(t, vf, "name")
@@ -353,8 +363,8 @@ func TestReadStringsVtx(t *testing.T) {
 	}
 
 	arr := arrays[0]
-	if arr.Length != 300 {
-		t.Fatalf("expected 300 rows, got %d", arr.Length)
+	if arr.Length != 1000 {
+		t.Fatalf("expected 1000 rows, got %d", arr.Length)
 	}
 
 	// This is a dict array: children[0]=codes, children[1]=values.
@@ -362,20 +372,20 @@ func TestReadStringsVtx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DictLookupStrings: %v", err)
 	}
-	if len(strs) != 300 {
-		t.Fatalf("expected 300 strings, got %d", len(strs))
+	if len(strs) != 1000 {
+		t.Fatalf("expected 1000 strings, got %d", len(strs))
 	}
 
-	// The data cycles: "alice", "bob", "charlie" × 100.
-	expected := []string{"alice", "bob", "charlie"}
+	// The data cycles: "alice", "bob", "charlie", "diana", "eve" × 200.
+	expected := []string{"alice", "bob", "charlie", "diana", "eve"}
 	for i, s := range strs {
-		want := expected[i%3]
+		want := expected[i%len(expected)]
 		if s != want {
 			t.Errorf("name[%d] = %q, want %q", i, s, want)
 			break
 		}
 	}
-	t.Logf("strings.vtx name: 300 strings cycling [alice, bob, charlie] ✓")
+	t.Logf("strings.vtx name: 1000 strings cycling %v ✓", expected)
 }
 
 func TestReadMixedVtxName(t *testing.T) {
