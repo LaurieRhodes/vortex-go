@@ -163,3 +163,33 @@ func readIntCodes(arr *vortex.Array) ([]int, error) {
 func init() {
 	Register("vortex.varbinview", &VarBinViewDecoder{})
 }
+
+// DictStringParts returns a dictionary-encoded utf8/binary array's
+// codes and distinct values WITHOUT expanding codes into materialized
+// strings, so callers can compute directly over the encoded form
+// (group by code, resolve a predicate to a single code, etc.).
+// ok is false when the array is not dictionary-encoded; the caller
+// should fall back to StringValues. Codes are bounds-validated here so
+// downstream indexing needs no checks.
+func DictStringParts(arr *vortex.Array) (codes []int, values []string, ok bool, err error) {
+	if arr.DType.Kind != vortex.DTypeUtf8 && arr.DType.Kind != vortex.DTypeBinary {
+		return nil, nil, false, nil
+	}
+	if len(arr.Buffers) != 0 || len(arr.Children) != 2 {
+		return nil, nil, false, nil
+	}
+	values, err = StringValues(arr.Children[1])
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("dict string values: %w", err)
+	}
+	codes, err = readIntCodes(arr.Children[0])
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("dict codes: %w", err)
+	}
+	for i, c := range codes {
+		if c < 0 || c >= len(values) {
+			return nil, nil, false, fmt.Errorf("dict code[%d]=%d exceeds dictionary size %d", i, c, len(values))
+		}
+	}
+	return codes, values, true, nil
+}

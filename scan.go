@@ -58,6 +58,7 @@ type scanColumn struct {
 	isDict          bool
 	dictValuesFlats []*Layout // flat layouts for dictionary values
 	dictCodesFlats  []*Layout // flat layouts for dictionary codes
+	dictValuesArr   *Array    // decoded dictionary values, cached across chunks
 	dictValuesRows  uint64    // row count of values layout (= dict size)
 	dictCodesPType  PType     // PType of the codes array; -1 = not known from metadata
 
@@ -531,14 +532,20 @@ func (it *ScanIterator) decodeDictColumnChunk(sc *scanColumn, chunkIdx int) (*Ar
 	if len(sc.dictValuesFlats) == 0 {
 		return nil, 0, fmt.Errorf("no dict values decoded for %q", sc.name)
 	}
-	flat := sc.dictValuesFlats[0] // typically one values segment
-	node, buffers, err := it.file.ReadFlatSegment(flat)
-	if err != nil {
-		return nil, 0, fmt.Errorf("reading dict values for %q: %w", sc.name, err)
-	}
-	valuesArr, err := decodeArrayInternal(node, buffers, sc.dtype, flat.RowCount)
-	if err != nil {
-		return nil, 0, fmt.Errorf("decoding dict values for %q: %w", sc.name, err)
+	// Dictionary values are shared across all chunks of the extent:
+	// decode once and cache on the scan column.
+	valuesArr := sc.dictValuesArr
+	if valuesArr == nil {
+		flat := sc.dictValuesFlats[0] // typically one values segment
+		node, buffers, err := it.file.ReadFlatSegment(flat)
+		if err != nil {
+			return nil, 0, fmt.Errorf("reading dict values for %q: %w", sc.name, err)
+		}
+		valuesArr, err = decodeArrayInternal(node, buffers, sc.dtype, flat.RowCount)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decoding dict values for %q: %w", sc.name, err)
+		}
+		sc.dictValuesArr = valuesArr
 	}
 
 	// Decode codes for this chunk.
@@ -547,7 +554,7 @@ func (it *ScanIterator) decodeDictColumnChunk(sc *scanColumn, chunkIdx int) (*Ar
 	}
 
 	codesFlat := sc.dictCodesFlats[chunkIdx]
-	node, buffers, err = it.file.ReadFlatSegment(codesFlat)
+	node, buffers, err := it.file.ReadFlatSegment(codesFlat)
 	if err != nil {
 		return nil, 0, fmt.Errorf("reading dict codes for %q: %w", sc.name, err)
 	}
