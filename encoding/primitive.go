@@ -55,6 +55,9 @@ func Int32Values(arr *vortex.Array) ([]int32, error) {
 		return nil, nil
 	}
 	buf := arr.Buffers[0]
+	if v := primView[int32](buf, arr.Length); v != nil {
+		return v, nil
+	}
 	values := make([]int32, arr.Length)
 	for i := range values {
 		values[i] = int32(binary.LittleEndian.Uint32(buf[i*4:]))
@@ -71,6 +74,9 @@ func Uint32Values(arr *vortex.Array) ([]uint32, error) {
 		return nil, nil
 	}
 	buf := arr.Buffers[0]
+	if v := primView[uint32](buf, arr.Length); v != nil {
+		return v, nil
+	}
 	values := make([]uint32, arr.Length)
 	for i := range values {
 		values[i] = binary.LittleEndian.Uint32(buf[i*4:])
@@ -87,6 +93,9 @@ func Int64Values(arr *vortex.Array) ([]int64, error) {
 		return nil, nil
 	}
 	buf := arr.Buffers[0]
+	if v := primView[int64](buf, arr.Length); v != nil {
+		return v, nil
+	}
 	values := make([]int64, arr.Length)
 	for i := range values {
 		values[i] = int64(binary.LittleEndian.Uint64(buf[i*8:]))
@@ -103,6 +112,9 @@ func Uint64Values(arr *vortex.Array) ([]uint64, error) {
 		return nil, nil
 	}
 	buf := arr.Buffers[0]
+	if v := primView[uint64](buf, arr.Length); v != nil {
+		return v, nil
+	}
 	values := make([]uint64, arr.Length)
 	for i := range values {
 		values[i] = binary.LittleEndian.Uint64(buf[i*8:])
@@ -135,6 +147,9 @@ func Float64Values(arr *vortex.Array) ([]float64, error) {
 		return nil, nil
 	}
 	buf := arr.Buffers[0]
+	if v := primView[float64](buf, arr.Length); v != nil {
+		return v, nil
+	}
 	values := make([]float64, arr.Length)
 	for i := range values {
 		values[i] = math.Float64frombits(binary.LittleEndian.Uint64(buf[i*8:]))
