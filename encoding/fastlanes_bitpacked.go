@@ -77,7 +77,7 @@ func (d *BitPackedDecoder) Decode(node *vortex.ArrayNode, buffers [][]byte, dtyp
 	buf := buffers[0]
 	elemSize := vortex.PTypeSize(dtype.PType)
 
-	outBuf, err := unpackFastLanesTyped(buf, bw, offset, int(rowCount), elemSize)
+	outBuf, err := unpackFastLanesFast(buf, bw, offset, int(rowCount), elemSize)
 	if err != nil {
 		return nil, fmt.Errorf("bitpacked: %w", err)
 	}
@@ -229,5 +229,5 @@ func init() {
 // ExportUnpackFastLanesTyped is an exported wrapper around unpackFastLanesTyped
 // for use in cross-package tests (e.g. writer pack→unpack round-trip verification).
 func ExportUnpackFastLanesTyped(packed []byte, bw, offset, count, elemSize int) ([]byte, error) {
-	return unpackFastLanesTyped(packed, bw, offset, count, elemSize)
+	return unpackFastLanesFast(packed, bw, offset, count, elemSize)
 }
