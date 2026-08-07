@@ -152,3 +152,14 @@ func (k DTypeKind) String() string {
 func PTypeFromProto(v int32) PType {
 	return PType(v)
 }
+
+// resolveStorageDType unwraps Extension dtypes to their storage dtype
+// (recursively), so decode paths operate on physical representation.
+// Logical extension identity remains available on the file schema via
+// File.DType().
+func ResolveStorageDType(dt *DType) *DType {
+	for dt != nil && dt.Kind == DTypeExtension && dt.StorageDType != nil {
+		dt = dt.StorageDType
+	}
+	return dt
+}

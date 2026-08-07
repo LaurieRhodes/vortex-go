@@ -181,7 +181,9 @@ func (w *Writer) WriteChunk(columns map[string]*vortex.Array) error {
 	// Write each column as a Flat layout segment.
 	for i, name := range w.schema.FieldNames {
 		arr := columns[name]
-		colDType := w.schema.FieldTypes[i]
+		// Extension dtypes serialize their storage representation; the
+		// logical extension identity lives only in the file schema.
+		colDType := vortex.ResolveStorageDType(w.schema.FieldTypes[i])
 
 		segData, alignExp, err := w.serializeArray(arr, colDType)
 		if err != nil {
@@ -1060,6 +1062,30 @@ func buildDTypeNode(b *flatbuffers.Builder, dt *vortex.DType) flatbuffers.UOffse
 		vortexfb.DTypeStart(b)
 		vortexfb.DTypeAddTypeType(b, vortexfb.TypeBinary)
 		vortexfb.DTypeAddType(b, binOff)
+		return vortexfb.DTypeEnd(b)
+
+	case vortex.DTypeExtension:
+		// Build storage dtype and id first (tables cannot nest builds).
+		storageOff := buildDTypeNode(b, dt.StorageDType)
+		idOff := b.CreateString(dt.ExtensionID)
+		var metaOff flatbuffers.UOffsetT
+		if len(dt.ExtMetadata) > 0 {
+			vortexfb.ExtensionStartMetadataVector(b, len(dt.ExtMetadata))
+			for i := len(dt.ExtMetadata) - 1; i >= 0; i-- {
+				b.PrependByte(dt.ExtMetadata[i])
+			}
+			metaOff = b.EndVector(len(dt.ExtMetadata))
+		}
+		vortexfb.ExtensionStart(b)
+		vortexfb.ExtensionAddId(b, idOff)
+		vortexfb.ExtensionAddStorageDtype(b, storageOff)
+		if len(dt.ExtMetadata) > 0 {
+			vortexfb.ExtensionAddMetadata(b, metaOff)
+		}
+		extOff := vortexfb.ExtensionEnd(b)
+		vortexfb.DTypeStart(b)
+		vortexfb.DTypeAddTypeType(b, vortexfb.TypeExtension)
+		vortexfb.DTypeAddType(b, extOff)
 		return vortexfb.DTypeEnd(b)
 
 	case vortex.DTypeStruct:

@@ -161,6 +161,7 @@ func statFieldDType(colDType *DType, stat Stat) *DType {
 // The layout must be a Zoned layout (IsZoned() == true).
 // colDType is the data type of the column this zone map covers.
 func (f *File) ReadZoneMap(layout *Layout, colDType *DType) (*ZoneMapResult, error) {
+	colDType = ResolveStorageDType(colDType)
 	if !layout.IsZoned() {
 		return nil, fmt.Errorf("layout is not Zoned: %s", layout.EncodingID)
 	}

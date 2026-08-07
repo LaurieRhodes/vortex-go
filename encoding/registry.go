@@ -53,11 +53,23 @@ func DecodeArray(node *vortex.ArrayNode, allBuffers [][]byte, dtype *vortex.DTyp
 	return decodeWithContext(node, dtype, rowCount, ctx)
 }
 
+// extensionAware lists encodings whose decoders interpret the logical
+// Extension dtype themselves (e.g. reading a time-unit divisor from
+// ExtMetadata). Every other decoder operates on the physical storage
+// representation, so Extension dtypes resolve to their storage dtype
+// before dispatch.
+var extensionAware = map[string]bool{
+	"vortex.datetimeparts": true,
+}
+
 // decodeWithContext is the internal recursive decoder.
 func decodeWithContext(node *vortex.ArrayNode, dtype *vortex.DType, rowCount uint64, ctx *DecodeContext) (*vortex.Array, error) {
 	dec, err := Get(node.EncodingID)
 	if err != nil {
 		return nil, err
+	}
+	if !extensionAware[node.EncodingID] {
+		dtype = vortex.ResolveStorageDType(dtype)
 	}
 
 	// Select the buffers this node references.
