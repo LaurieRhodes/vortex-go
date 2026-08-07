@@ -3,7 +3,20 @@ package pcodec
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
 )
+
+// pagePaddedPool holds reusable scratch buffers for DecompressPage's
+// padded bit-reader input. One buffer is checked out and returned per
+// page decoded; sized to the largest page seen so far by a given
+// goroutine's usage pattern (sync.Pool is per-P under the hood, so
+// buffers naturally settle near a working size without cross-goroutine
+// contention).
+var pagePaddedPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 0, 4096)
+	},
+}
 
 // pageLatentState holds the per-page mutable state for a single latent variable
 // during decompression. It tracks ANS state indices and delta decoding state.
@@ -97,17 +110,44 @@ func newLatentDecompressor(meta *ChunkLatentVarMeta, de LatentVarDelta) *latentD
 //   - latentBits: the latent bit width for the number type
 //
 // Returns the decompressed values as latent-ordered uint64 slice.
-func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, nValues int, latentBits Bitlen) ([]uint64, error) {
+// dst must have length nValues; DecompressPage writes directly into it
+// rather than allocating its own output buffer. This exists because
+// the caller (Decompress) knows the total row count for a chunk
+// upfront (sum of pageNValues) and pre-allocates the whole chunk's
+// output once — writing each page directly into its slice of that
+// buffer avoids both a separate per-page allocation here AND the
+// append-driven copy+reallocation Decompress used to do to stitch
+// per-page results together.
+func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, dst []uint64, latentBits Bitlen) error {
 	// Parse page metadata.
 	pm, metaBytes, err := ReadPageMeta(pageData, cm)
 	if err != nil {
-		return nil, fmt.Errorf("pcodec: page meta: %w", err)
+		return fmt.Errorf("pcodec: page meta: %w", err)
 	}
 
-	// Create the bit reader over the page body (after metadata).
+	// Create the bit reader over the page body (after metadata). The
+	// trailing 16 bytes let BitReader over-read past the real data
+	// without a bounds check on every read; they must be zero, since a
+	// pooled buffer (see pagePaddedPool) may carry stale bytes from a
+	// previous, larger page in exactly that region, and BitReader has
+	// no way to know it shouldn't trust them. padded is purely local
+	// scratch — nothing returned from this function aliases it (dst is
+	// the caller-owned output; the error is a plain value) — so it's
+	// safe to return to the pool unconditionally when this function
+	// exits, successfully or not.
 	body := pageData[metaBytes:]
-	padded := make([]byte, len(body)+16)
-	copy(padded, body)
+	neededLen := len(body) + 16
+	padded := pagePaddedPool.Get().([]byte)
+	if cap(padded) < neededLen {
+		padded = make([]byte, neededLen)
+	} else {
+		padded = padded[:neededLen]
+	}
+	n := copy(padded, body)
+	for i := n; i < neededLen; i++ {
+		padded[i] = 0
+	}
+	defer pagePaddedPool.Put(padded[:0]) //nolint:staticcheck // intentional: reset length, keep capacity for reuse
 	reader := NewBitReader(padded)
 
 	// Initialize per-page delta state for each latent variable.
@@ -141,8 +181,7 @@ func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, nValu
 		secondPS = initPageState(pm.Secondary, cd.SecondLD)
 	}
 
-	// Allocate output.
-	result := make([]uint64, nValues)
+	nValues := len(dst)
 
 	// Process in batches of FullBatchN.
 	nRemaining := nValues
@@ -168,8 +207,17 @@ func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, nValu
 		readBatchANS(reader, primaryPS, cd.PrimaryLD, primaryPreDeltaLen)
 		readBatchOffsets(reader, cd.PrimaryLD, primaryPreDeltaLen)
 		applyDelta(primaryPS, cd.PrimaryLD, deltaLatents, batchN, nRemaining)
-		primaryBatch := make([]uint64, batchN)
-		copy(primaryBatch, cd.PrimaryLD.latents[:batchN])
+		// ld.latents is per-latentDecompressor scratch, already reused
+		// across batches (see latentDecompressor doc comment). JoinLatents
+		// (and every mode-specific join* impl: joinClassic, joinIntMult,
+		// joinFloatMult, joinFloatQuant, joinDict) only reads primary/
+		// secondary and writes into dst — none of them retain the slice
+		// beyond the call, and dst is a distinct backing array
+		// (result[offset:offset+batchN]), so passing the scratch directly
+		// is safe: nothing aliases ld.latents past this statement, and the
+		// next batch iteration's overwrite of ld.latents happens strictly
+		// after JoinLatents has already copied out what it needs into dst.
+		primaryBatch := cd.PrimaryLD.latents[:batchN]
 
 		// 3. Decompress secondary latents (if present).
 		var secondaryBatch []uint64
@@ -178,14 +226,13 @@ func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, nValu
 			readBatchANS(reader, secondPS, cd.SecondLD, secPreDeltaLen)
 			readBatchOffsets(reader, cd.SecondLD, secPreDeltaLen)
 			applyDelta(secondPS, cd.SecondLD, deltaLatents, batchN, nRemaining)
-			secondaryBatch = make([]uint64, batchN)
-			copy(secondaryBatch, cd.SecondLD.latents[:batchN])
+			secondaryBatch = cd.SecondLD.latents[:batchN]
 		}
 
 		// 4. Join latents via mode.
 		if err := JoinLatents(&cm.Mode, primaryBatch, secondaryBatch,
-			result[offset:offset+batchN], latentBits); err != nil {
-			return nil, err
+			dst[offset:offset+batchN], latentBits); err != nil {
+			return err
 		}
 
 		offset += batchN
@@ -198,7 +245,7 @@ func DecompressPage(pageData []byte, cm *ChunkMeta, cd *ChunkDecompressor, nValu
 		_ = err
 	}
 
-	return result, nil
+	return nil
 }
 
 // readBatchANS reads ANS symbols for a batch, populating ld.latents and
@@ -308,8 +355,24 @@ func Decompress(
 	}
 
 	latentBits := latentType.Bits()
-	var result []uint64
+
+	// Total row count for this whole decompression is known upfront
+	// (sum of pageNValues), so the output buffer is allocated exactly
+	// once here and each page writes directly into its slice of it via
+	// DecompressPage's dst parameter. The previous version allocated a
+	// fresh buffer inside DecompressPage for every single page, then
+	// copied it into a separately growing outer slice via append —
+	// meaning every page's values were allocated and copied twice for
+	// no reason, and the append itself repeatedly reallocated as it
+	// grew across many pages. Both of those are eliminated here: one
+	// allocation for the whole chunk, one write per value, no copies.
+	totalValues := 0
+	for _, nv := range pageNValues {
+		totalValues += nv
+	}
+	result := make([]uint64, totalValues)
 	pageIdx := 0
+	resultOffset := 0
 
 	for chunkIdx, cmData := range chunkMetas {
 		cm, err := ReadChunkMeta(cmData, fv, latentType)
@@ -322,11 +385,10 @@ func Decompress(
 		nPages := pagesPerChunk[chunkIdx]
 		for p := 0; p < nPages; p++ {
 			nv := pageNValues[pageIdx]
-			vals, err := DecompressPage(pages[pageIdx], cm, cd, nv, latentBits)
-			if err != nil {
+			if err := DecompressPage(pages[pageIdx], cm, cd, result[resultOffset:resultOffset+nv], latentBits); err != nil {
 				return nil, fmt.Errorf("pcodec: chunk %d page %d: %w", chunkIdx, p, err)
 			}
-			result = append(result, vals...)
+			resultOffset += nv
 			pageIdx++
 		}
 	}
