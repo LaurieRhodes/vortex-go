@@ -66,6 +66,16 @@ type File struct {
 	// Parsed structures.
 	footer *Footer
 	dtype  *DType
+
+	// prefetch holds coalesced segment reads for the most recent Scan()
+	// call, if any (see prefetch.go). readSegmentSpec consults it before
+	// falling back to a per-segment read. Scoped to File rather than
+	// ScanIterator purely for plumbing convenience: this codebase never
+	// reuses a File across concurrent or overlapping scans (each extent
+	// gets its own freshly-opened File), so a second Scan() simply
+	// overwrites this with a fresh prefetch for the new projection —
+	// correct, not a leak.
+	prefetch *segmentPrefetch
 	layout *Layout
 	stats  *FileStatistics
 }
@@ -236,7 +246,34 @@ func (f *File) readSegment(seg *PostscriptSegment) ([]byte, error) {
 }
 
 // readSegmentSpec reads a raw segment described by a SegmentSpec from the footer.
+// byteSlicer is an optional interface a File's io.ReaderAt may satisfy
+// to expose zero-copy access to an already fully-resident in-memory
+// buffer (e.g. a caller that already read a whole small extent file
+// into memory before calling Open — see open-kusto's openExtentChunks).
+// readSegmentSpec prefers this when available: segment bytes are only
+// ever read downstream (feeding array/decode parsing), never mutated,
+// and the backing buffer is already kept alive for the File's whole
+// lifetime regardless, so an aliased subslice introduces no new
+// retention risk over what already exists. Readers that don't
+// implement it (a real *os.File, or any other true I/O source) fall
+// back to the standard ReadAt-into-fresh-buffer path below, which is
+// required there since those bytes must be copied out of the OS/disk
+// into Go-visible memory — there is no buffer to alias into.
+type byteSlicer interface {
+	Slice(off, length int64) ([]byte, error)
+}
+
 func (f *File) readSegmentSpec(spec SegmentSpec) ([]byte, error) {
+	if b, ok := f.prefetch.slice(int64(spec.Offset), int64(spec.Length)); ok {
+		return b, nil
+	}
+	if s, ok := f.r.(byteSlicer); ok {
+		b, err := s.Slice(int64(spec.Offset), int64(spec.Length))
+		if err != nil {
+			return nil, fmt.Errorf("reading segment at offset %d, length %d: %w", spec.Offset, spec.Length, err)
+		}
+		return b, nil
+	}
 	buf := make([]byte, spec.Length)
 	if _, err := f.r.ReadAt(buf, int64(spec.Offset)); err != nil {
 		return nil, fmt.Errorf("reading segment at offset %d, length %d: %w", spec.Offset, spec.Length, err)

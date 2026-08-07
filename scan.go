@@ -116,7 +116,72 @@ func (f *File) Scan(opts ScanOptions) (*ScanIterator, error) {
 		}
 	}
 
+	// Coalesce the byte ranges this scan will actually touch (after
+	// projection and zone pruning, both already resolved above) into a
+	// small number of large reads, so per-segment reads during
+	// iteration become zero-copy slices instead of individual ReadAt
+	// syscalls. Best-effort: any failure here just means every
+	// readSegmentSpec call falls back to its normal per-segment read —
+	// identical results, just without the coalescing win.
+	it.buildPrefetch()
+
 	return it, nil
+}
+
+// buildPrefetch gathers the segment byte ranges this iterator's scan
+// will need — every flat layout for every non-pruned chunk of every
+// projected column, plus (for Dict columns) the shared dictionary
+// values segment unconditionally, since it's needed the moment any
+// surviving chunk of that column is decoded — and issues the coalesced
+// reads via buildSegmentPrefetch, storing the result on the File so
+// readSegmentSpec picks it up. Called once from Scan(), after
+// projection and zone pruning are both resolved, so it sees exactly
+// what iteration will actually touch: an unfiltered scan collects
+// every chunk's ranges (approaching "read the whole file in one
+// shot"); a selective scan excludes pruned chunks entirely, so it
+// only pays for bytes iteration will actually decode.
+func (it *ScanIterator) buildPrefetch() {
+	if len(it.columns) == 0 {
+		return
+	}
+
+	var needed []segRange
+	for ci := range it.columns {
+		sc := &it.columns[ci]
+		if sc.isDict {
+			for _, flat := range sc.dictValuesFlats {
+				if r, ok := segRangeForLayout(it.file, flat); ok {
+					needed = append(needed, r)
+				}
+			}
+			for idx, flat := range sc.dictCodesFlats {
+				if it.isChunkPruned(idx) {
+					continue
+				}
+				if r, ok := segRangeForLayout(it.file, flat); ok {
+					needed = append(needed, r)
+				}
+			}
+		} else {
+			for idx, flat := range sc.flatLayouts {
+				if it.isChunkPruned(idx) {
+					continue
+				}
+				if r, ok := segRangeForLayout(it.file, flat); ok {
+					needed = append(needed, r)
+				}
+			}
+		}
+	}
+
+	prefetch, err := buildSegmentPrefetch(it.file.r, needed)
+	if err != nil {
+		// Non-fatal: prefetch is purely a read-path optimization.
+		// Leaving it.file.prefetch unset just means readSegmentSpec
+		// falls back to its normal per-segment ReadAt path below.
+		return
+	}
+	it.file.prefetch = prefetch
 }
 
 // readZoneStatsForFilter reads zone map statistics needed for filtering.
