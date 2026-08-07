@@ -30,6 +30,7 @@ import (
 
 	vortex "github.com/LaurieRhodes/vortex-go"
 	"github.com/LaurieRhodes/vortex-go/internal/flatbuf/vortexfb"
+	"github.com/LaurieRhodes/vortex-go/internal/proto/encodings"
 	"github.com/LaurieRhodes/vortex-go/internal/proto/scalar"
 	"google.golang.org/protobuf/proto"
 )
@@ -105,6 +106,28 @@ type Writer struct {
 	// Per-column stats table segment indices (filled during Close).
 	statsSegIdx []int // -1 means no zone map for that column
 
+	// pendingStringChunks buffers Utf8/Binary column arrays across
+	// WriteChunk calls (one entry per call, in order) instead of
+	// serializing them immediately. This lets finalizeStringColumns,
+	// called once from Close, evaluate dictionary-encoding cardinality
+	// across the WHOLE extent rather than one 8192-row zone at a time —
+	// see finalizeStringColumns's doc comment for the full rationale.
+	// Non-string columns are unaffected and keep streaming immediately,
+	// exactly as before.
+	pendingStringChunks [][]*vortex.Array
+
+	// dictValuesSegIdx[i] is the segment index of column i's shared
+	// dictionary values (if it ended up dictionary-encoded), or -1.
+	// Filled by finalizeStringColumns during Close, consulted by
+	// buildLayoutFB to decide whether to wrap the column's codes in a
+	// Dict layout node. dictValuesCount and dictCodesPType are filled
+	// alongside it — buildLayoutFB needs them to construct the Dict
+	// layout's DictArrayMetadata bytes (ValuesLen, CodesPtype), which
+	// ParseDictLayoutCodesPType reads back on the read side.
+	dictValuesSegIdx []int
+	dictValuesCount  []int
+	dictCodesPType   []vortex.PType
+
 	closed bool
 }
 
@@ -133,12 +156,19 @@ func NewWriter(w io.Writer, schema *vortex.DType, opts Options) (*Writer, error)
 	}
 
 	wr := &Writer{
-		w:          w,
-		schema:     schema,
-		opts:       opts,
-		arraySpecs: make(map[string]int),
-		colChunks:  make([][]colChunk, len(schema.FieldNames)),
-		colStats:   make([]columnStats, len(schema.FieldNames)),
+		w:                   w,
+		schema:              schema,
+		opts:                opts,
+		arraySpecs:          make(map[string]int),
+		colChunks:           make([][]colChunk, len(schema.FieldNames)),
+		colStats:            make([]columnStats, len(schema.FieldNames)),
+		pendingStringChunks: make([][]*vortex.Array, len(schema.FieldNames)),
+		dictValuesSegIdx:    make([]int, len(schema.FieldNames)),
+		dictValuesCount:     make([]int, len(schema.FieldNames)),
+		dictCodesPType:      make([]vortex.PType, len(schema.FieldNames)),
+	}
+	for i := range wr.dictValuesSegIdx {
+		wr.dictValuesSegIdx[i] = -1
 	}
 
 	// Initialize zone map trackers if enabled.
@@ -185,48 +215,82 @@ func (w *Writer) WriteChunk(columns map[string]*vortex.Array) error {
 		// logical extension identity lives only in the file schema.
 		colDType := vortex.ResolveStorageDType(w.schema.FieldTypes[i])
 
+		// File-level and per-zone statistics are computed straight from
+		// the array's own values, independent of which encoding it
+		// eventually gets serialized with — so these run eagerly here
+		// regardless of whether this column's segment writing is
+		// deferred below.
+		w.updateStats(i, arr, colDType)
+		if w.zoneTrackers != nil {
+			w.zoneTrackers[i].addZone(arr, colDType)
+		}
+
+		// Extension-typed columns are excluded even when their storage
+		// resolves to Utf8/Binary: canonicalizeArray/serializeArray's
+		// normal immediate path has its own extension-specific
+		// handling (see "Extension DType write support" in vortex-go's
+		// history) that finalizeStringColumns doesn't replicate — the
+		// deferred dict/flat decision here is only for genuinely plain
+		// string columns.
+		isExtension := w.schema.FieldTypes[i].Kind == vortex.DTypeExtension
+		if w.opts.EnableDict && !isExtension && (colDType.Kind == vortex.DTypeUtf8 || colDType.Kind == vortex.DTypeBinary) {
+			// Defer: buffer this chunk's array. The dictionary-encoding
+			// decision and all segment writing for this column happen
+			// once, extent-wide, in finalizeStringColumns (called from
+			// Close) — see its doc comment for why per-chunk decisions
+			// silently miss cross-chunk-but-still-low cardinality.
+			w.pendingStringChunks[i] = append(w.pendingStringChunks[i], arr)
+			continue
+		}
+
 		segData, alignExp, err := w.serializeArray(arr, colDType)
 		if err != nil {
 			return fmt.Errorf("writer: serializing column %q: %w", name, err)
 		}
 
-		// Align segment start to the required alignment for its buffers.
-		segAlign := 1 << int(alignExp)
-		if pad := (segAlign - int(w.offset%uint64(segAlign))) % segAlign; pad > 0 {
-			zeros := make([]byte, pad)
-			if _, err := w.w.Write(zeros); err != nil {
-				return fmt.Errorf("writer: aligning segment for %q: %w", name, err)
-			}
-			w.offset += uint64(pad)
-		}
-
-		segIdx := uint32(len(w.segSpecs))
-		w.segSpecs = append(w.segSpecs, vortex.SegmentSpec{
-			Offset:            w.offset,
-			Length:            uint32(len(segData)),
-			AlignmentExponent: alignExp,
-		})
-
-		if _, err := w.w.Write(segData); err != nil {
+		segIdx, err := w.writeAlignedSegment(segData, alignExp)
+		if err != nil {
 			return fmt.Errorf("writer: writing segment for %q: %w", name, err)
 		}
-		w.offset += uint64(len(segData))
 
 		w.colChunks[i] = append(w.colChunks[i], colChunk{
 			segmentIdx: segIdx,
 			rowCount:   uint64(arr.Length),
 		})
-
-		// Update statistics.
-		w.updateStats(i, arr, colDType)
-
-		// Track per-zone stats for zone map pruning.
-		if w.zoneTrackers != nil {
-			w.zoneTrackers[i].addZone(arr, colDType)
-		}
 	}
 
 	return nil
+}
+
+// writeAlignedSegment pads the current write offset up to segData's
+// required alignment, writes segData, records its SegmentSpec, and
+// returns the new segment's index. Factored out of WriteChunk's inline
+// version (behavior identical) so finalizeStringColumns can reuse the
+// exact same offset/alignment bookkeeping when writing dict values and
+// per-chunk codes segments outside the normal WriteChunk flow.
+func (w *Writer) writeAlignedSegment(segData []byte, alignExp uint8) (uint32, error) {
+	segAlign := 1 << int(alignExp)
+	if pad := (segAlign - int(w.offset%uint64(segAlign))) % segAlign; pad > 0 {
+		zeros := make([]byte, pad)
+		if _, err := w.w.Write(zeros); err != nil {
+			return 0, fmt.Errorf("aligning segment: %w", err)
+		}
+		w.offset += uint64(pad)
+	}
+
+	segIdx := uint32(len(w.segSpecs))
+	w.segSpecs = append(w.segSpecs, vortex.SegmentSpec{
+		Offset:            w.offset,
+		Length:            uint32(len(segData)),
+		AlignmentExponent: alignExp,
+	})
+
+	if _, err := w.w.Write(segData); err != nil {
+		return 0, fmt.Errorf("writing segment: %w", err)
+	}
+	w.offset += uint64(len(segData))
+
+	return segIdx, nil
 }
 
 // Close finalizes the file by writing the metadata footer.
@@ -239,6 +303,14 @@ func (w *Writer) Close() error {
 		return fmt.Errorf("writer: already closed")
 	}
 	w.closed = true
+
+	// Decide encoding and write segments for any string columns whose
+	// serialization was deferred by WriteChunk — must happen before
+	// layout-spec registration below, since that needs to know whether
+	// any column ended up dictionary-encoded.
+	if err := w.finalizeStringColumns(); err != nil {
+		return err
+	}
 
 	// Build the layout specs list.
 	layoutSpecs := []string{vortex.LayoutFlat, vortex.LayoutStruct}
@@ -258,6 +330,19 @@ func (w *Writer) Close() error {
 	if needChunked {
 		layoutSpecIdx[vortex.LayoutChunked] = uint16(len(layoutSpecs))
 		layoutSpecs = append(layoutSpecs, vortex.LayoutChunked)
+	}
+
+	// Check if we need Dict layout (any column ended up dict-encoded).
+	needDict := false
+	for _, idx := range w.dictValuesSegIdx {
+		if idx >= 0 {
+			needDict = true
+			break
+		}
+	}
+	if needDict {
+		layoutSpecIdx[vortex.LayoutDict] = uint16(len(layoutSpecs))
+		layoutSpecs = append(layoutSpecs, vortex.LayoutDict)
 	}
 
 	// Write zone map stats table segments (if enabled).
@@ -397,7 +482,20 @@ func (w *Writer) serializeArray(arr *vortex.Array, dtype *vortex.DType) ([]byte,
 	if err != nil {
 		return nil, 0, err
 	}
+	return w.serializeNode(node, buffers)
+}
 
+// serializeNode assembles an already-canonicalized array node tree (plus
+// its buffers) into final segment bytes. Factored out of serializeArray
+// so callers that build a node tree directly — without going through
+// canonicalizeArray's per-array encoding-choice logic — can still reuse
+// the exact same, tested byte-layout assembly. finalizeStringColumns
+// uses this to write a values segment and per-chunk codes segments
+// independently, since canonicalizeDictString itself only ever builds
+// one combined codes+values segment for a single array.
+//
+// Segment format: [buffer data...] [Array FlatBuffer] [fb_length: u32 LE]
+func (w *Writer) serializeNode(node *arrayNodeInfo, buffers [][]byte) ([]byte, uint8, error) {
 	// Assemble the segment: [padded buffer data] [FB padding] [Array FlatBuffer] [fb_length: u32 LE]
 	// Each buffer is padded to its required alignment for zero-copy reads.
 	// VarBinView views require 16-byte alignment; everything else uses 8-byte.
@@ -741,6 +839,52 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 			vortexfb.LayoutAddEncoding(b, layoutSpecIdx[vortex.LayoutChunked])
 			vortexfb.LayoutAddRowCount(b, colRows)
 			vortexfb.LayoutAddChildren(b, chunkedChildrenVec)
+			dataLayout = vortexfb.LayoutEnd(b)
+		}
+
+		// Wrap with Dict layout if this column was dictionary-encoded
+		// (see finalizeStringColumns). dataLayout above is currently
+		// the CODES layout (Flat or Chunked, built identically to any
+		// other column's data layout — colChunks[i] holds the codes
+		// segments here, not raw string segments). We wrap it with a
+		// sibling Flat layout for the shared dictionary values, under
+		// a new Dict-encoded layout node — exactly the shape
+		// NavigateToData expects: children[0]=values, children[1]=codes.
+		if w.dictValuesSegIdx[i] >= 0 {
+			valuesLayout := buildFlatLayoutFB(b, layoutSpecIdx[vortex.LayoutFlat], colChunk{
+				segmentIdx: uint32(w.dictValuesSegIdx[i]),
+				rowCount:   uint64(w.dictValuesCount[i]),
+			})
+
+			// Layout-level Dict metadata is DictLayoutMetadata (just
+			// codes_ptype, field 1) — a DIFFERENT message than
+			// DictArrayMetadata (values_len + codes_ptype, used at the
+			// array-node level by canonicalizeDictString). values_len
+			// isn't needed here: the reader already derives dictionary
+			// size from the values layout's own RowCount
+			// (dictValuesLayout.RowCount, see prepareScanColumn).
+			dictMeta := &encodings.DictLayoutMetadata{
+				CodesPtype: int32(w.dictCodesPType[i]),
+			}
+			dictMetaBytes, err := proto.Marshal(dictMeta)
+			if err != nil {
+				// Metadata is small and always well-formed here; a
+				// marshal failure would indicate a real bug, not a
+				// recoverable runtime condition.
+				panic(fmt.Sprintf("writer: marshaling dict layout metadata: %v", err))
+			}
+			dictMetaVec := b.CreateByteVector(dictMetaBytes)
+
+			vortexfb.LayoutStartChildrenVector(b, 2)
+			b.PrependUOffsetT(dataLayout)  // children[1] = codes
+			b.PrependUOffsetT(valuesLayout) // children[0] = values
+			dictChildrenVec := b.EndVector(2)
+
+			vortexfb.LayoutStart(b)
+			vortexfb.LayoutAddEncoding(b, layoutSpecIdx[vortex.LayoutDict])
+			vortexfb.LayoutAddRowCount(b, colRows)
+			vortexfb.LayoutAddChildren(b, dictChildrenVec)
+			vortexfb.LayoutAddMetadata(b, dictMetaVec)
 			dataLayout = vortexfb.LayoutEnd(b)
 		}
 
@@ -1234,4 +1378,175 @@ func buildFooterFB(arraySpecs, layoutSpecs []string, segSpecs []vortex.SegmentSp
 
 	b.Finish(footerOff)
 	return b.FinishedBytes()
+}
+
+// finalizeStringColumns decides dictionary encoding for each buffered
+// string column using cardinality computed across the WHOLE extent
+// (every WriteChunk call combined), then writes the resulting
+// segments. Called once from Close, before the layout tree is built.
+//
+// This exists because canonicalizeDictString's cardinality check, when
+// run once per WriteChunk call (as every other array type's encoding
+// decision is), only ever sees one 8192-row zone at a time. A column
+// can have low cardinality across a whole extent while still showing
+// >50% distinct values within any single 8192-row window — e.g. 5000
+// distinct values cycling through 49152 rows: each individual zone
+// sees close to its own 5000 distinct values out of 8192 rows (~61%,
+// failing the <0.5 threshold), even though the true, whole-extent
+// ratio is ~10%. The column silently falls back to flat encoding
+// forever, paying for both worse compression AND — since every row
+// then needs its own independent string materialized at read time,
+// instead of decoding a small shared dictionary once — a much larger
+// read-time cost.
+//
+// If cardinality qualifies, this builds ONE shared dictionary for the
+// whole column and writes it as a single values segment, then writes
+// one codes segment per original chunk (preserving the existing
+// 8192-row zone boundaries for zone-map purposes) referencing that
+// shared dictionary — exactly the layout shape NavigateToData already
+// expects (Dict layout: children[0]=values, children[1]=codes), so no
+// reader changes are needed; this is a write-time-only fix.
+func (w *Writer) finalizeStringColumns() error {
+	for i, chunks := range w.pendingStringChunks {
+		if len(chunks) == 0 {
+			continue
+		}
+		colDType := vortex.ResolveStorageDType(w.schema.FieldTypes[i])
+
+		chunkStrings := make([][]string, len(chunks))
+		total := 0
+		for ci, arr := range chunks {
+			strs, err := extractStringsFromArray(arr)
+			if err != nil {
+				return fmt.Errorf("writer: extracting strings for column %d chunk %d: %w", i, ci, err)
+			}
+			chunkStrings[ci] = strs
+			total += len(strs)
+		}
+
+		unique := make(map[string]struct{})
+		for _, strs := range chunkStrings {
+			for _, s := range strs {
+				unique[s] = struct{}{}
+			}
+		}
+		ratio := 1.0
+		if total > 0 {
+			ratio = float64(len(unique)) / float64(total)
+		}
+
+		if w.opts.EnableDict && total > 0 && ratio < 0.5 {
+			if err := w.writeSharedDictColumn(i, chunkStrings); err != nil {
+				return fmt.Errorf("writer: dict-encoding column %d: %w", i, err)
+			}
+			continue
+		}
+
+		// Fall back to flat encoding, one segment per original chunk —
+		// exactly what WriteChunk would have done immediately before
+		// this deferral existed.
+		for ci, arr := range chunks {
+			segData, alignExp, err := w.serializeArray(arr, colDType)
+			if err != nil {
+				return fmt.Errorf("writer: serializing column %d chunk %d: %w", i, ci, err)
+			}
+			segIdx, err := w.writeAlignedSegment(segData, alignExp)
+			if err != nil {
+				return fmt.Errorf("writer: writing column %d chunk %d: %w", i, ci, err)
+			}
+			w.colChunks[i] = append(w.colChunks[i], colChunk{
+				segmentIdx: segIdx,
+				rowCount:   uint64(arr.Length),
+			})
+		}
+	}
+	return nil
+}
+
+// writeSharedDictColumn builds one shared, sorted dictionary across all
+// of a column's chunks, writes it as a single values segment, and
+// writes one codes segment per original chunk referencing it. Reuses
+// buildDictionary/encodeCodesBuf/encodeVarBinView — the exact same
+// helpers canonicalizeDictString uses for its single-array, combined
+// codes+values segment — just applied across the concatenation of all
+// chunks and split back into independent segments so the codes stay
+// aligned with the existing per-chunk zone boundaries.
+func (w *Writer) writeSharedDictColumn(i int, chunkStrings [][]string) error {
+	var allStrings []string
+	for _, strs := range chunkStrings {
+		allStrings = append(allStrings, strs...)
+	}
+	dict, allCodes := buildDictionary(allStrings)
+
+	var codesPType vortex.PType
+	switch {
+	case len(dict) <= 256:
+		codesPType = vortex.PTypeU8
+	case len(dict) <= 65536:
+		codesPType = vortex.PTypeU16
+	default:
+		codesPType = vortex.PTypeU32
+	}
+
+	// --- Write the shared values segment, once. ---
+	viewsBuf, dataBufs := encodeVarBinView(dict)
+	vbvEncIdx := w.registerArraySpec("vortex.varbinview")
+
+	vbvLengths := make([]uint32, 1+len(dataBufs))
+	vbvLengths[0] = uint32(len(viewsBuf))
+	for j, db := range dataBufs {
+		vbvLengths[j+1] = uint32(len(db))
+	}
+	vbvAligns := make([]uint8, len(vbvLengths))
+	vbvAligns[0] = 4 // views buffer: 16-byte alignment
+	for j := 1; j < len(vbvAligns); j++ {
+		vbvAligns[j] = 3 // data buffers: 8-byte alignment
+	}
+	valuesNode := &arrayNodeInfo{
+		encodingIdx:   vbvEncIdx,
+		bufferLengths: vbvLengths,
+		bufferAligns:  vbvAligns,
+	}
+	valuesBuffers := append([][]byte{viewsBuf}, dataBufs...)
+
+	valuesSegData, valuesAlignExp, err := w.serializeNode(valuesNode, valuesBuffers)
+	if err != nil {
+		return fmt.Errorf("serializing shared dict values: %w", err)
+	}
+	valuesSegIdx, err := w.writeAlignedSegment(valuesSegData, valuesAlignExp)
+	if err != nil {
+		return fmt.Errorf("writing shared dict values: %w", err)
+	}
+	w.dictValuesSegIdx[i] = int(valuesSegIdx)
+	w.dictValuesCount[i] = len(dict)
+	w.dictCodesPType[i] = codesPType
+
+	primEncIdx := w.registerArraySpec("vortex.primitive")
+
+	// --- Write one codes segment per original chunk. ---
+	offset := 0
+	for _, strs := range chunkStrings {
+		n := len(strs)
+		chunkCodes := allCodes[offset : offset+n]
+		offset += n
+
+		codesBuf := encodeCodesBuf(chunkCodes, codesPType)
+		codesNode := &arrayNodeInfo{
+			encodingIdx:   primEncIdx,
+			bufferLengths: []uint32{uint32(len(codesBuf))},
+		}
+		codesSegData, codesAlignExp, err := w.serializeNode(codesNode, [][]byte{codesBuf})
+		if err != nil {
+			return fmt.Errorf("serializing dict codes chunk: %w", err)
+		}
+		codesSegIdx, err := w.writeAlignedSegment(codesSegData, codesAlignExp)
+		if err != nil {
+			return fmt.Errorf("writing dict codes chunk: %w", err)
+		}
+		w.colChunks[i] = append(w.colChunks[i], colChunk{
+			segmentIdx: codesSegIdx,
+			rowCount:   uint64(n),
+		})
+	}
+	return nil
 }
