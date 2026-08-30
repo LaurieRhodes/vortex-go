@@ -76,8 +76,8 @@ type File struct {
 	// overwrites this with a fresh prefetch for the new projection —
 	// correct, not a leak.
 	prefetch *segmentPrefetch
-	layout *Layout
-	stats  *FileStatistics
+	layout   *Layout
+	stats    *FileStatistics
 }
 
 // Open reads the footer of a Vortex file and returns a File handle for further reads.

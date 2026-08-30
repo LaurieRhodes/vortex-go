@@ -107,10 +107,11 @@ func statsTableDType(colDType *DType, presentStats []Stat) *DType {
 		fieldTypes = append(fieldTypes, &nullableDT)
 
 		// Max and Min have an additional is_truncated bool field.
-		if stat == StatMax {
+		switch stat {
+		case StatMax:
 			fieldNames = append(fieldNames, "max_is_truncated")
 			fieldTypes = append(fieldTypes, &DType{Kind: DTypeBool, Nullable: false})
-		} else if stat == StatMin {
+		case StatMin:
 			fieldNames = append(fieldNames, "min_is_truncated")
 			fieldTypes = append(fieldTypes, &DType{Kind: DTypeBool, Nullable: false})
 		}
@@ -166,7 +167,7 @@ func (f *File) ReadZoneMap(layout *Layout, colDType *DType) (*ZoneMapResult, err
 		return nil, fmt.Errorf("layout is not Zoned: %s", layout.EncodingID)
 	}
 	if len(layout.Children) < 2 {
-		return nil, fmt.Errorf("Zoned layout needs 2 children, has %d", len(layout.Children))
+		return nil, fmt.Errorf("zoned layout needs 2 children, has %d", len(layout.Children))
 	}
 
 	// Parse metadata.

@@ -158,7 +158,7 @@ func (f *File) ReadFlatSegment(layout *Layout) (*ArrayNode, [][]byte, error) {
 		return nil, nil, fmt.Errorf("expected Flat layout, got %q", layout.EncodingID)
 	}
 	if len(layout.Segments) == 0 {
-		return nil, nil, fmt.Errorf("Flat layout has no segments")
+		return nil, nil, fmt.Errorf("flat layout has no segments")
 	}
 
 	// Read the segment bytes.

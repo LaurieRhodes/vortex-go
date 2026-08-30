@@ -86,10 +86,10 @@ func (d *ZstdDecoder) Decode(node *vortex.ArrayNode, buffers [][]byte, dtype *vo
 	}
 
 	// Reconstruct the array based on dtype.
-	switch {
-	case dtype.Kind == vortex.DTypePrimitive:
+	switch dtype.Kind {
+	case vortex.DTypePrimitive:
 		return decompressPrimitive(decompressed, dtype, int(rowCount), node)
-	case dtype.Kind == vortex.DTypeUtf8 || dtype.Kind == vortex.DTypeBinary:
+	case vortex.DTypeUtf8, vortex.DTypeBinary:
 		return decompressVarBinView(decompressed, dtype, int(rowCount), node)
 	default:
 		return nil, fmt.Errorf("zstd: unsupported dtype %v", dtype.Kind)
