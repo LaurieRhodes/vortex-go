@@ -876,7 +876,7 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 			dictMetaVec := b.CreateByteVector(dictMetaBytes)
 
 			vortexfb.LayoutStartChildrenVector(b, 2)
-			b.PrependUOffsetT(dataLayout)  // children[1] = codes
+			b.PrependUOffsetT(dataLayout)   // children[1] = codes
 			b.PrependUOffsetT(valuesLayout) // children[0] = values
 			dictChildrenVec := b.EndVector(2)
 

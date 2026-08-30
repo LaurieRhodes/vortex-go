@@ -1,49 +1,55 @@
-# golangci-lint configuration for vortex-go
-# https://golangci-lint.run/usage/configuration/
-
-run:
-  timeout: 5m
-
+version: "2"
 linters:
   enable:
-    - govet
-    - staticcheck
-    - gosimple
-    - unused
-    - errcheck
-    - ineffassign
-    - gofmt
     - misspell
   disable:
     - depguard
     - exhaustive
     - wrapcheck
-
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        - fmt.Fprintf
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - unused
+        path: benchmark/
+    paths:
+      - internal/flatbuf
+      - internal/proto
+      - testdata/testgen
+      - .venv
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-dirs:
-    - internal/flatbuf
-    - internal/proto
-    - testdata/testgen
-    - .venv
-  exclude-rules:
-    # Allow unchecked errors in test files (common pattern)
-    - path: _test\.go
-      linters:
-        - errcheck
-    # Allow unused parameters in benchmark code
-    - path: benchmark/
-      linters:
-        - unused
   max-issues-per-linter: 50
   max-same-issues: 10
-
-linters-settings:
-  errcheck:
-    # Don't check for unchecked errors from fmt.Print/Printf/Println
-    exclude-functions:
-      - fmt.Print
-      - fmt.Printf
-      - fmt.Println
-      - fmt.Fprintf
-  misspell:
-    locale: US
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - internal/flatbuf
+      - internal/proto
+      - testdata/testgen
+      - .venv
+      - third_party$
+      - builtin$
+      - examples$

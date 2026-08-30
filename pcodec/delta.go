@@ -142,7 +142,7 @@ func DecodeConv1(cs *Conv1State, latents []uint64) {
 func predictOne(preceding []uint64, weights []int64, bias int64, quantization Bitlen, latentBits Bitlen) uint64 {
 	// Conv type mapping: u8→i16, u16→i32, u32→i64, u64→i64
 	// We use int64 for all since it's the largest accumulator.
-	var s int64 = bias
+	var s = bias
 	for j, w := range weights {
 		// Convert latent to its Conv representation.
 		// For u8/u16/u32 this is a zero-extending cast; for u64 it's reinterpret.
