@@ -3,6 +3,7 @@ package encoding
 import (
 	"encoding/binary"
 	"fmt"
+	"unsafe"
 
 	vortex "github.com/LaurieRhodes/vortex-go"
 )
@@ -192,4 +193,77 @@ func DictStringParts(arr *vortex.Array) (codes []int, values []string, ok bool, 
 		}
 	}
 	return codes, values, true, nil
+}
+
+// StringValuesArena is StringValues with every string of a flat
+// VarBinView array sharing one backing allocation: one allocation per
+// array instead of one per row. Dict arrays are returned as
+// StringValues returns them.
+//
+// Every returned string keeps the whole arena reachable. Callers that
+// retain a few strings past the array's lifetime should copy them
+// (strings.Clone) so a single survivor does not pin the array's bytes.
+func StringValuesArena(arr *vortex.Array) ([]string, error) {
+	if arr.DType.Kind != vortex.DTypeUtf8 && arr.DType.Kind != vortex.DTypeBinary {
+		return nil, fmt.Errorf("not a utf8/binary array (kind=%v)", arr.DType.Kind)
+	}
+	if len(arr.Buffers) == 0 && len(arr.Children) == 2 {
+		return stringValuesFromDict(arr)
+	}
+	if len(arr.Buffers) < 1 {
+		return nil, nil
+	}
+
+	viewsBuf := arr.Buffers[0]
+	dataBufs := arr.Buffers[1:]
+	n := arr.Length
+	if len(viewsBuf) < n*16 {
+		return nil, fmt.Errorf("views buffer too small: %d bytes for %d rows (need %d)", len(viewsBuf), n, n*16)
+	}
+
+	// Pass 1: validate views and size the arena.
+	total := 0
+	for i := 0; i < n; i++ {
+		off := i * 16
+		strLen := binary.LittleEndian.Uint32(viewsBuf[off : off+4])
+		if strLen > 12 {
+			bufIdx := binary.LittleEndian.Uint32(viewsBuf[off+8 : off+12])
+			bufOff := binary.LittleEndian.Uint32(viewsBuf[off+12 : off+16])
+			if int(bufIdx) >= len(dataBufs) {
+				return nil, fmt.Errorf("string %d: buffer index %d out of range (have %d data buffers)", i, bufIdx, len(dataBufs))
+			}
+			if end := uint64(bufOff) + uint64(strLen); end > uint64(len(dataBufs[bufIdx])) {
+				return nil, fmt.Errorf("string %d: offset %d + length %d overflows data buffer %d (size %d)", i, bufOff, strLen, bufIdx, len(dataBufs[bufIdx]))
+			}
+		}
+		total += int(strLen)
+	}
+
+	// Pass 2: copy into the arena. The arena is never written after
+	// this loop, which is what makes the unsafe.String view sound.
+	arena := make([]byte, 0, total)
+	ends := make([]int, n)
+	for i := 0; i < n; i++ {
+		off := i * 16
+		strLen := binary.LittleEndian.Uint32(viewsBuf[off : off+4])
+		if strLen <= 12 {
+			arena = append(arena, viewsBuf[off+4:off+4+int(strLen)]...)
+		} else {
+			bufIdx := binary.LittleEndian.Uint32(viewsBuf[off+8 : off+12])
+			bufOff := binary.LittleEndian.Uint32(viewsBuf[off+12 : off+16])
+			arena = append(arena, dataBufs[bufIdx][bufOff:bufOff+strLen]...)
+		}
+		ends[i] = len(arena)
+	}
+	values := make([]string, n)
+	if total == 0 {
+		return values, nil
+	}
+	all := unsafe.String(unsafe.SliceData(arena), len(arena))
+	start := 0
+	for i, end := range ends {
+		values[i] = all[start:end]
+		start = end
+	}
+	return values, nil
 }
