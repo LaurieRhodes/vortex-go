@@ -324,6 +324,10 @@ func extractTypedValues(arr *Array, colDType *DType) []interface{} {
 		dataBuf = arr.Buffers[1]
 	} else if len(arr.Buffers) == 1 {
 		dataBuf = arr.Buffers[0]
+		// A nullable primitive's validity is its bool child.
+		if len(arr.Children) == 1 && arr.Children[0] != nil && len(arr.Children[0].Buffers) > 0 {
+			validityBuf = arr.Children[0].Buffers[0]
+		}
 	}
 
 	// For masked arrays, the child[0] is the values array.

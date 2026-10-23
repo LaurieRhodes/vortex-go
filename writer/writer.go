@@ -144,6 +144,11 @@ type columnStats struct {
 	hasMax    bool
 	minBytes  []byte // protobuf ScalarValue
 	maxBytes  []byte // protobuf ScalarValue
+
+	// Running primitive min/max over every chunk's valid values.
+	seen       bool
+	minI, maxI int64
+	minF, maxF float64
 }
 
 // NewWriter creates a new Vortex file writer.
@@ -566,6 +571,12 @@ type arrayNodeInfo struct {
 // canonicalizeArray determines the canonical encoding for an array and
 // extracts its buffers. Returns the node tree and ordered buffer slices.
 func (w *Writer) canonicalizeArray(arr *vortex.Array, dtype *vortex.DType) (*arrayNodeInfo, [][]byte, error) {
+	// A nullable primitive or bool array with a validity child (a bool
+	// array, true = valid) is written canonically with that child; the
+	// compressed encodings carry no validity.
+	if v := validityChild(arr, dtype); v != nil {
+		return w.canonicalizeWithValidity(arr, dtype, v)
+	}
 	switch dtype.Kind {
 	case vortex.DTypePrimitive:
 		// Try FoR + BitPacking first (integers only, narrow range).
@@ -621,6 +632,44 @@ func (w *Writer) canonicalizePrimitive(arr *vortex.Array, dtype *vortex.DType) (
 		encodingIdx:   encIdx,
 		bufferLengths: []uint32{uint32(len(arr.Buffers[0]))},
 	}, arr.Buffers[:1], nil
+}
+
+// validityChild returns arr's validity array: the single bool child of
+// a nullable primitive or bool array, or nil.
+func validityChild(arr *vortex.Array, dtype *vortex.DType) *vortex.Array {
+	if !dtype.Nullable || len(arr.Children) != 1 {
+		return nil
+	}
+	if dtype.Kind != vortex.DTypePrimitive && dtype.Kind != vortex.DTypeBool {
+		return nil
+	}
+	if c := arr.Children[0]; c != nil && c.DType != nil && c.DType.Kind == vortex.DTypeBool && c.Length == arr.Length {
+		return c
+	}
+	return nil
+}
+
+// canonicalizeWithValidity writes a primitive or bool array with its
+// validity as child 0. Buffers are in node order: the array's own, then
+// the validity's.
+func (w *Writer) canonicalizeWithValidity(arr *vortex.Array, dtype *vortex.DType, validity *vortex.Array) (*arrayNodeInfo, [][]byte, error) {
+	var node *arrayNodeInfo
+	var bufs [][]byte
+	var err error
+	if dtype.Kind == vortex.DTypeBool {
+		node, bufs, err = w.canonicalizeBool(arr)
+	} else {
+		node, bufs, err = w.canonicalizePrimitive(arr, dtype)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	vNode, vBufs, err := w.canonicalizeBool(validity)
+	if err != nil {
+		return nil, nil, err
+	}
+	node.children = []*arrayNodeInfo{vNode}
+	return node, append(append([][]byte{}, bufs...), vBufs...), nil
 }
 
 func (w *Writer) canonicalizeBool(arr *vortex.Array) (*arrayNodeInfo, [][]byte, error) {
@@ -718,6 +767,13 @@ func (w *Writer) buildArrayFB(root *arrayNodeInfo, buffers [][]byte, paddings []
 }
 
 func buildArrayNodeFB(b *flatbuffers.Builder, node *arrayNodeInfo, bufIdx *int) flatbuffers.UOffsetT {
+	// Buffer indices are pre-order — a node's own buffers, then its
+	// children's — matching collectBufferLengths and the buffer order
+	// the canonicalizers return.
+	numBufs := len(node.bufferLengths)
+	firstBuf := *bufIdx
+	*bufIdx += numBufs
+
 	// Build children first (FlatBuffers are back-to-front).
 	var childOffsets []flatbuffers.UOffsetT
 	for _, child := range node.children {
@@ -736,14 +792,12 @@ func buildArrayNodeFB(b *flatbuffers.Builder, node *arrayNodeInfo, bufIdx *int) 
 
 	// Build buffer indices vector.
 	var bufsVec flatbuffers.UOffsetT
-	numBufs := len(node.bufferLengths)
 	if numBufs > 0 {
 		vortexfb.ArrayNodeStartBuffersVector(b, numBufs)
 		for i := numBufs - 1; i >= 0; i-- {
-			b.PrependUint16(uint16(*bufIdx + i))
+			b.PrependUint16(uint16(firstBuf + i))
 		}
 		bufsVec = b.EndVector(numBufs)
-		*bufIdx += numBufs
 	}
 
 	// Build metadata vector.
@@ -876,7 +930,7 @@ func (w *Writer) buildLayoutFB(layoutSpecIdx map[string]uint16, totalRows uint64
 			dictMetaVec := b.CreateByteVector(dictMetaBytes)
 
 			vortexfb.LayoutStartChildrenVector(b, 2)
-			b.PrependUOffsetT(dataLayout)  // children[1] = codes
+			b.PrependUOffsetT(dataLayout)   // children[1] = codes
 			b.PrependUOffsetT(valuesLayout) // children[0] = values
 			dictChildrenVec := b.EndVector(2)
 
@@ -1034,62 +1088,57 @@ func (w *Writer) updatePrimitiveStats(cs *columnStats, arr *vortex.Array, dtype 
 		return
 	}
 	buf := arr.Buffers[0]
-
-	switch dtype.PType {
-	case vortex.PTypeI32:
-		var minV, maxV int32
-		minV = math.MaxInt32
-		maxV = math.MinInt32
-		for i := 0; i < arr.Length; i++ {
-			v := int32(binary.LittleEndian.Uint32(buf[i*4:]))
-			if v < minV {
-				minV = v
-			}
-			if v > maxV {
-				maxV = v
-			}
+	valid := validBits(arr, dtype)
+	// Min and max cover the valid values of every chunk so far; nulls
+	// are counted.
+	for i := 0; i < arr.Length; i++ {
+		if valid != nil && valid[i/8]&(1<<uint(i%8)) == 0 {
+			cs.nullCount++
+			continue
 		}
-		cs.minBytes = encodeScalarInt64(int64(minV))
-		cs.maxBytes = encodeScalarInt64(int64(maxV))
-		cs.hasMin = true
-		cs.hasMax = true
-
-	case vortex.PTypeI64:
-		var minV, maxV int64
-		minV = math.MaxInt64
-		maxV = math.MinInt64
-		for i := 0; i < arr.Length; i++ {
+		switch dtype.PType {
+		case vortex.PTypeI32:
+			v := int64(int32(binary.LittleEndian.Uint32(buf[i*4:])))
+			if !cs.seen || v < cs.minI {
+				cs.minI = v
+			}
+			if !cs.seen || v > cs.maxI {
+				cs.maxI = v
+			}
+		case vortex.PTypeI64:
 			v := int64(binary.LittleEndian.Uint64(buf[i*8:]))
-			if v < minV {
-				minV = v
+			if !cs.seen || v < cs.minI {
+				cs.minI = v
 			}
-			if v > maxV {
-				maxV = v
+			if !cs.seen || v > cs.maxI {
+				cs.maxI = v
 			}
-		}
-		cs.minBytes = encodeScalarInt64(minV)
-		cs.maxBytes = encodeScalarInt64(maxV)
-		cs.hasMin = true
-		cs.hasMax = true
-
-	case vortex.PTypeF64:
-		var minV, maxV float64
-		minV = math.MaxFloat64
-		maxV = -math.MaxFloat64
-		for i := 0; i < arr.Length; i++ {
+		case vortex.PTypeF64:
 			v := math.Float64frombits(binary.LittleEndian.Uint64(buf[i*8:]))
-			if v < minV {
-				minV = v
+			if !cs.seen || v < cs.minF {
+				cs.minF = v
 			}
-			if v > maxV {
-				maxV = v
+			if !cs.seen || v > cs.maxF {
+				cs.maxF = v
 			}
+		default:
+			return
 		}
-		cs.minBytes = encodeScalarFloat64(minV)
-		cs.maxBytes = encodeScalarFloat64(maxV)
-		cs.hasMin = true
-		cs.hasMax = true
+		cs.seen = true
 	}
+	if !cs.seen {
+		return
+	}
+	switch dtype.PType {
+	case vortex.PTypeI32, vortex.PTypeI64:
+		cs.minBytes = encodeScalarInt64(cs.minI)
+		cs.maxBytes = encodeScalarInt64(cs.maxI)
+	case vortex.PTypeF64:
+		cs.minBytes = encodeScalarFloat64(cs.minF)
+		cs.maxBytes = encodeScalarFloat64(cs.maxF)
+	}
+	cs.hasMin = true
+	cs.hasMax = true
 }
 
 func (w *Writer) updateUtf8Stats(cs *columnStats, arr *vortex.Array) {

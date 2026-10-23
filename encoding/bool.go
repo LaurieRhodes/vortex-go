@@ -62,3 +62,24 @@ func BoolValues(arr *vortex.Array) ([]bool, error) {
 	}
 	return values, nil
 }
+
+// Validity returns the per-row validity (true = valid) of a decoded
+// primitive or bool array that carries a validity child, or nil when
+// every row is valid (no child).
+func Validity(arr *vortex.Array) ([]bool, error) {
+	if arr == nil || arr.DType == nil || len(arr.Children) != 1 {
+		return nil, nil
+	}
+	if arr.DType.Kind != vortex.DTypePrimitive && arr.DType.Kind != vortex.DTypeBool {
+		return nil, nil
+	}
+	v := arr.Children[0]
+	if v == nil || v.DType == nil || v.DType.Kind != vortex.DTypeBool {
+		return nil, nil
+	}
+	vals, err := BoolValues(v)
+	if err != nil || len(vals) < arr.Length {
+		return nil, err
+	}
+	return vals[:arr.Length], nil
+}

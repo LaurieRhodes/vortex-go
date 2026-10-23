@@ -27,6 +27,9 @@ type zoneEntry struct {
 	maxI64 int64
 	minF64 float64
 	maxF64 float64
+	// allNull marks a zone with no valid value: its min and max are
+	// written as null (the reader then never prunes it).
+	allNull bool
 }
 
 // zoneColTracker accumulates per-zone stats for one column.
@@ -43,11 +46,16 @@ func (t *zoneColTracker) addZone(arr *vortex.Array, dtype *vortex.DType) {
 
 	buf := arr.Buffers[0]
 	ze := zoneEntry{}
+	valid := validBits(arr, dtype) // nil: every row valid
+	isValid := func(i int) bool { return valid == nil || valid[i/8]&(1<<uint(i%8)) != 0 }
 
 	switch dtype.PType {
 	case vortex.PTypeI32:
 		ze.minI64, ze.maxI64 = math.MaxInt32, math.MinInt32
 		for i := 0; i < arr.Length; i++ {
+			if !isValid(i) {
+				continue
+			}
 			v := int64(int32(binary.LittleEndian.Uint32(buf[i*4:])))
 			if v < ze.minI64 {
 				ze.minI64 = v
@@ -59,6 +67,9 @@ func (t *zoneColTracker) addZone(arr *vortex.Array, dtype *vortex.DType) {
 	case vortex.PTypeI64:
 		ze.minI64, ze.maxI64 = math.MaxInt64, math.MinInt64
 		for i := 0; i < arr.Length; i++ {
+			if !isValid(i) {
+				continue
+			}
 			v := int64(binary.LittleEndian.Uint64(buf[i*8:]))
 			if v < ze.minI64 {
 				ze.minI64 = v
@@ -70,6 +81,9 @@ func (t *zoneColTracker) addZone(arr *vortex.Array, dtype *vortex.DType) {
 	case vortex.PTypeF64:
 		ze.minF64, ze.maxF64 = math.MaxFloat64, -math.MaxFloat64
 		for i := 0; i < arr.Length; i++ {
+			if !isValid(i) {
+				continue
+			}
 			v := math.Float64frombits(binary.LittleEndian.Uint64(buf[i*8:]))
 			if v < ze.minF64 {
 				ze.minF64 = v
@@ -82,8 +96,26 @@ func (t *zoneColTracker) addZone(arr *vortex.Array, dtype *vortex.DType) {
 		return // unsupported ptype for zone maps
 	}
 
+	if valid != nil {
+		ze.allNull = true
+		for i := 0; i < arr.Length; i++ {
+			if isValid(i) {
+				ze.allNull = false
+				break
+			}
+		}
+	}
 	t.ptype = dtype.PType
 	t.zones = append(t.zones, ze)
+}
+
+// validBits returns the validity bitmap (LSB-first, 1 = valid) of a
+// nullable array written with a validity child, or nil.
+func validBits(arr *vortex.Array, dtype *vortex.DType) []byte {
+	if v := validityChild(arr, dtype); v != nil && len(v.Buffers) > 0 {
+		return v.Buffers[0]
+	}
+	return nil
 }
 
 // hasZones returns true if at least one zone has been tracked.
@@ -189,16 +221,44 @@ func (w *Writer) serializeStatsTable(tracker *zoneColTracker) ([]byte, uint8, er
 	boolEncIdx := w.registerArraySpec("vortex.bool")
 	structEncIdx := w.registerArraySpec("vortex.struct")
 
-	// Buffers in order: [maxBuf, boolBuf(max_trunc), minBuf, boolBuf(min_trunc)]
-	buffers := [][]byte{maxBuf, boolBuf, minBuf, boolBuf}
+	// An all-null zone has null min and max: the value primitives then
+	// carry a validity child (bool, 1 = valid).
+	var statValid []byte
+	for i, ze := range tracker.zones {
+		if ze.allNull {
+			if statValid == nil {
+				statValid = make([]byte, (numZones+7)/8)
+				for j := 0; j < numZones; j++ {
+					statValid[j/8] |= 1 << uint(j%8)
+				}
+			}
+			statValid[i/8] &^= 1 << uint(i%8)
+		}
+	}
+	valueNode := func(buf []byte) *arrayNodeInfo {
+		n := &arrayNodeInfo{encodingIdx: primEncIdx, bufferLengths: []uint32{uint32(len(buf))}}
+		if statValid != nil {
+			n.children = []*arrayNodeInfo{{encodingIdx: boolEncIdx, bufferLengths: []uint32{uint32(len(statValid))}}}
+		}
+		return n
+	}
+
+	// Buffers in node (pre-)order: max [, its validity], max_is_truncated,
+	// min [, its validity], min_is_truncated.
+	var buffers [][]byte
+	if statValid != nil {
+		buffers = [][]byte{maxBuf, statValid, boolBuf, minBuf, statValid, boolBuf}
+	} else {
+		buffers = [][]byte{maxBuf, boolBuf, minBuf, boolBuf}
+	}
 
 	// Build the arrayNodeInfo tree.
 	root := &arrayNodeInfo{
 		encodingIdx: structEncIdx,
 		children: []*arrayNodeInfo{
-			{encodingIdx: primEncIdx, bufferLengths: []uint32{uint32(len(maxBuf))}},
+			valueNode(maxBuf),
 			{encodingIdx: boolEncIdx, bufferLengths: []uint32{uint32(len(boolBuf))}},
-			{encodingIdx: primEncIdx, bufferLengths: []uint32{uint32(len(minBuf))}},
+			valueNode(minBuf),
 			{encodingIdx: boolEncIdx, bufferLengths: []uint32{uint32(len(boolBuf))}},
 		},
 	}
